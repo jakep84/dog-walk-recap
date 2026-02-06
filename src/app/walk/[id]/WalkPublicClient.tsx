@@ -5,7 +5,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import type { WalkMedia } from "../../lib/uploadMedia";
 import dynamic from "next/dynamic";
-import "./walk-public.css";
+import "./components/walk-public.css";
 
 const WalkViewerMap = dynamic(() => import("./components/WalkViewerMap"), {
   ssr: false,
