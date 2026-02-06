@@ -1,65 +1,256 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+
+import WalkMap from "./components/WalkMap";
+import { LatLng } from "./lib/geo";
+
+import { createWalk } from "./lib/saveWalk";
+import { uploadMedia } from "./lib/uploadMedia";
+import { db } from "./lib/firebase";
+import { doc, updateDoc } from "firebase/firestore";
+
+import styles from "./page.module.css";
+
+type WeatherNow = { temperatureF: number; summary: string };
+
+export default function Page() {
+  const router = useRouter();
+
+  const [durationMinutes, setDurationMinutes] = useState<number>(60);
+  const [dogs, setDogs] = useState<string>("Corvi and Irma");
+
+  const [routePoints, setRoutePoints] = useState<LatLng[]>([]);
+  const [distanceMiles, setDistanceMiles] = useState<number>(0);
+
+  const [weather, setWeather] = useState<WeatherNow | null>(null);
+  const [tempF, setTempF] = useState<string>("");
+  const [weatherSummary, setWeatherSummary] = useState<string>("");
+
+  const [notes, setNotes] = useState<string>("");
+
+  const [files, setFiles] = useState<File[]>([]);
+  const [publishing, setPublishing] = useState(false);
+
+  // Fetch weather based on current location once
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+
+        const r = await fetch(`/api/weather?lat=${lat}&lng=${lng}`);
+        if (!r.ok) return;
+
+        const data = (await r.json()) as WeatherNow;
+        setWeather(data);
+        setTempF(String(data.temperatureF));
+        setWeatherSummary(data.summary);
+      },
+      () => {},
+      { enableHighAccuracy: true, timeout: 10000 },
+    );
+  }, []);
+
+  function saveDraft() {
+    const report = {
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+      dogs,
+      durationMinutes,
+      distanceMiles,
+      tempF: tempF ? Number(tempF) : null,
+      weatherSummary,
+      notes,
+      routePoints,
+    };
+
+    const existing = JSON.parse(localStorage.getItem("walkReports") || "[]");
+    existing.unshift(report);
+    localStorage.setItem("walkReports", JSON.stringify(existing));
+
+    alert("Saved draft locally on this device.");
+  }
+
+  async function publishWalk() {
+    if (publishing) return;
+    setPublishing(true);
+
+    try {
+      // 1️⃣ Create walk document
+      const walkId = await createWalk({
+        dogs,
+        durationMinutes,
+        distanceMiles,
+        tempF: tempF ? Number(tempF) : null,
+        weatherSummary,
+        notes,
+        routePoints,
+        media: [],
+      });
+
+      // 2️⃣ Upload media
+      const uploadedMedia = [];
+      for (const file of files) {
+        const media = await uploadMedia(walkId, file);
+        uploadedMedia.push(media);
+      }
+
+      // 3️⃣ Update document with media URLs
+      if (uploadedMedia.length > 0) {
+        await updateDoc(doc(db, "walks", walkId), {
+          media: uploadedMedia,
+        });
+      }
+
+      // 4️⃣ Go to shareable page
+      router.push(`/walk/${walkId}`);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to publish walk. Check console.");
+      setPublishing(false);
+    }
+  }
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className={styles.pageWrap}>
+      <header className={styles.header}>
+        <div>
+          <div className={styles.headerLeftTitle}>Dog Walk Recap</div>
+          <div className={styles.headerLeftSub}>
+            Draw route → auto distance • Auto weather • Upload media • Share
+            link
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+
+        <div className={styles.headerBtns}>
+          <button onClick={saveDraft} style={secondaryBtn}>
+            Save Draft
+          </button>
+          <button
+            onClick={publishWalk}
+            style={primaryBtn}
+            disabled={publishing}
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            {publishing ? "Publishing…" : "Publish Walk"}
+          </button>
         </div>
-      </main>
+      </header>
+
+      <div className={styles.bodyGrid}>
+        {/* Left panel */}
+        <div className={styles.leftPanel}>
+          <label style={labelStyle}>Dogs</label>
+          <input
+            value={dogs}
+            onChange={(e) => setDogs(e.target.value)}
+            style={inputStyle}
+          />
+
+          <label style={labelStyle}>Duration (minutes)</label>
+          <input
+            value={durationMinutes}
+            onChange={(e) => setDurationMinutes(Number(e.target.value))}
+            style={inputStyle}
+            type="number"
+          />
+
+          <div style={{ display: "flex", gap: 10 }}>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>Temp (°F)</label>
+              <input
+                value={tempF}
+                onChange={(e) => setTempF(e.target.value)}
+                style={inputStyle}
+              />
+            </div>
+
+            <div style={{ flex: 2 }}>
+              <label style={labelStyle}>Weather</label>
+              <input
+                value={weatherSummary}
+                onChange={(e) => setWeatherSummary(e.target.value)}
+                style={inputStyle}
+              />
+            </div>
+          </div>
+
+          <label style={labelStyle}>Notes</label>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            style={{ ...inputStyle, height: 120 }}
+          />
+
+          <label style={labelStyle}>Photos / Video</label>
+          <input
+            type="file"
+            multiple
+            accept="image/*,video/*"
+            onChange={(e) => setFiles(Array.from(e.target.files || []))}
+          />
+
+          <div
+            style={{
+              marginTop: 14,
+              padding: 12,
+              border: "1px solid rgba(0,0,0,0.1)",
+              borderRadius: 12,
+            }}
+          >
+            <b>Preview</b>
+            <div>Duration: {durationMinutes} min</div>
+            <div>Distance: {distanceMiles} miles</div>
+            <div>Temp: {tempF || "—"}°F</div>
+            <div>Weather: {weatherSummary || "—"}</div>
+            <div>Media files: {files.length}</div>
+          </div>
+        </div>
+
+        {/* Map */}
+        <div className={styles.mapPanel}>
+          <WalkMap
+            onRouteChange={(pts, miles) => {
+              setRoutePoints(pts);
+              setDistanceMiles(miles);
+            }}
+          />
+        </div>
+      </div>
     </div>
   );
 }
+
+const labelStyle: React.CSSProperties = {
+  display: "block",
+  fontSize: 12,
+  fontWeight: 800,
+  marginTop: 12,
+  marginBottom: 6,
+};
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.15)",
+};
+
+const primaryBtn: React.CSSProperties = {
+  padding: "10px 14px",
+  borderRadius: 10,
+  background: "black",
+  color: "white",
+  fontWeight: 800,
+};
+
+const secondaryBtn: React.CSSProperties = {
+  padding: "10px 14px",
+  borderRadius: 10,
+  background: "white",
+  border: "1px solid rgba(0,0,0,0.2)",
+  fontWeight: 700,
+};

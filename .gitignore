@@ -1,41 +1,55 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# ===============================
+# Node / Next.js
+# ===============================
+node_modules/
+.next/
+out/
+dist/
 
-# dependencies
-/node_modules
-/.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
+# Build cache
+.turbo/
+.vercel/
 
-# testing
-/coverage
+# ===============================
+# Environment variables
+# ===============================
+.env
+.env.*
+!.env.example
 
-# next.js
-/.next/
-/out/
+# ===============================
+# Firebase
+# ===============================
+.firebase/
+firebase-debug.log
+firestore-debug.log
+storage-debug.log
 
-# production
-/build
-
-# misc
+# ===============================
+# OS / Editor
+# ===============================
 .DS_Store
-*.pem
+Thumbs.db
+.vscode/
+.idea/
 
-# debug
+# ===============================
+# Logs
+# ===============================
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-.pnpm-debug.log*
+pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# ===============================
+# Temporary files
+# ===============================
+*.swp
+*.swo
+*.tmp
+*.log
 
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
+# ===============================
+# Media (local testing only)
+# ===============================
+uploads/
