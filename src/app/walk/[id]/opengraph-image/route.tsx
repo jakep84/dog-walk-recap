@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+import type { NextRequest } from "next/server";
 
 export const runtime = "edge";
 
@@ -29,11 +30,14 @@ async function fetchWalk(id: string) {
   };
 }
 
+// ✅ Next 16: params is a Promise
 export async function GET(
-  _req: Request,
-  { params }: { params: { id: string } },
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
 ) {
-  const data = await fetchWalk(params.id);
+  const { id } = await params;
+
+  const data = await fetchWalk(id);
 
   const title = data ? data.dogs : "Dog Walk Recap";
   const line = data
