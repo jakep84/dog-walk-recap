@@ -1,71 +1,70 @@
-import { ImageResponse } from "next/og";
-import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 
-export const runtime = "edge";
+export const runtime = "edge"; // optional, works fine on Vercel
 
-async function fetchWalk(id: string) {
+export async function GET(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
+
   const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID!;
   const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY!;
+
+  if (!projectId || !apiKey) {
+    return NextResponse.json(
+      { error: "Missing Firebase env vars on server." },
+      { status: 500 },
+    );
+  }
 
   const url =
     `https://firestore.googleapis.com/v1/projects/${projectId}` +
     `/databases/(default)/documents/walks/${id}?key=${apiKey}`;
 
-  const r = await fetch(url, { next: { revalidate: 30 } });
-  if (!r.ok) return null;
+  const r = await fetch(url, { next: { revalidate: 10 } });
+
+  if (!r.ok) {
+    const txt = await r.text();
+    return NextResponse.json(
+      { error: "Firestore fetch failed", status: r.status, body: txt },
+      { status: 404 },
+    );
+  }
 
   const json = await r.json();
   const f = json.fields || {};
 
-  return {
-    dogs: f.dogs?.stringValue || "Dog Walk",
-    duration: Number(
+  const walk = {
+    id,
+    dogs: f.dogs?.stringValue || "",
+    durationMinutes: Number(
       f.durationMinutes?.integerValue || f.durationMinutes?.doubleValue || 0,
     ),
-    miles: Number(
+    distanceMiles: Number(
       f.distanceMiles?.doubleValue || f.distanceMiles?.integerValue || 0,
     ),
-    tempF: f.tempF?.integerValue ?? f.tempF?.doubleValue ?? null,
-    weather: f.weatherSummary?.stringValue || "",
+    tempF:
+      f.tempF?.integerValue != null
+        ? Number(f.tempF.integerValue)
+        : f.tempF?.doubleValue != null
+          ? Number(f.tempF.doubleValue)
+          : null,
+    weatherSummary: f.weatherSummary?.stringValue || "",
+    notes: f.notes?.stringValue || "",
+    routePoints:
+      f.routePoints?.arrayValue?.values?.map((v: any) => ({
+        lat: Number(v.mapValue.fields.lat.doubleValue),
+        lng: Number(v.mapValue.fields.lng.doubleValue),
+      })) || [],
+    media:
+      f.media?.arrayValue?.values?.map((v: any) => ({
+        type: v.mapValue.fields.type.stringValue,
+        url: v.mapValue.fields.url.stringValue,
+        name: v.mapValue.fields.name?.stringValue || "",
+      })) || [],
+    createdAt: f.createdAt?.timestampValue || null,
   };
-}
 
-// ✅ Next 16: params is a Promise
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const { id } = await params;
-
-  const data = await fetchWalk(id);
-
-  const title = data ? data.dogs : "Dog Walk Recap";
-  const line = data
-    ? `Duration ${data.duration} min  •  Distance ${data.miles.toFixed(2)} mi` +
-      `${data.tempF !== null ? `  •  Temp ${data.tempF}°F` : ""}` +
-      `${data.weather ? `  •  ${data.weather}` : ""}`
-    : "Walk details";
-
-  return new ImageResponse(
-    <div
-      style={{
-        width: "1200px",
-        height: "630px",
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "center",
-        padding: "60px",
-        background: "#0b0b0c",
-        color: "white",
-        fontSize: 48,
-      }}
-    >
-      <div style={{ fontWeight: 900, fontSize: 64 }}>{title}</div>
-      <div style={{ marginTop: 22, opacity: 0.9, fontSize: 42 }}>{line}</div>
-      <div style={{ marginTop: 44, opacity: 0.6, fontSize: 32 }}>
-        Dog Walk Recap
-      </div>
-    </div>,
-    { width: 1200, height: 630 },
-  );
+  return NextResponse.json(walk);
 }
