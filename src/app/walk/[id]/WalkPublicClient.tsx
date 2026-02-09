@@ -27,7 +27,6 @@ type WalkDoc = {
 };
 
 function computeEarned(durationMinutes: number): number {
-  // Your rule: $20 per 30 minutes => 30=$20, 60=$40
   if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) return 0;
   const blocks = Math.round(durationMinutes / 30);
   return blocks * 20;
@@ -42,7 +41,6 @@ export default function WalkPublicClient({ walkId }: { walkId: string }) {
   const [err, setErr] = useState<string>("");
   const [loading, setLoading] = useState(true);
 
-  // Preview modal state
   const [showPreview, setShowPreview] = useState(false);
   const [previewLoaded, setPreviewLoaded] = useState(false);
   const [previewError, setPreviewError] = useState("");
@@ -90,10 +88,10 @@ export default function WalkPublicClient({ walkId }: { walkId: string }) {
     return "";
   }, [walk?.createdAt]);
 
-  const earned = useMemo(() => {
-    if (!walk) return 0;
-    return computeEarned(walk.durationMinutes);
-  }, [walk]);
+  const earned = useMemo(
+    () => (walk ? computeEarned(walk.durationMinutes) : 0),
+    [walk],
+  );
 
   const photoUrls = useMemo(() => {
     const imgs = (walk?.media || [])
@@ -121,11 +119,11 @@ export default function WalkPublicClient({ walkId }: { walkId: string }) {
     setShowPreview(false);
   }
 
-  // IMPORTANT: absolute-from-root path so it doesn't become /walk/[id]/walk/[id]/...
+  // Important: cache-bust so you always see the latest
   const previewSrc = useMemo(() => {
-    if (!walkId) return "";
-    return `/walk/${walkId}/recap-image`;
-  }, [walkId]);
+    const t = Date.now();
+    return `/walk/${walkId}/recap-image?t=${t}`;
+  }, [walkId, showPreview]);
 
   if (!walkId) return <div style={wrap}>Loading…</div>;
   if (loading) return <div style={wrap}>Loading…</div>;
@@ -134,13 +132,11 @@ export default function WalkPublicClient({ walkId }: { walkId: string }) {
 
   return (
     <div style={wrap}>
-      {/* Top bar */}
       <div style={topBar}>
         <div>
           <div style={title}>{walk.dogs}</div>
           <div style={sub}>
-            {createdLabel ? `${createdLabel} • ` : ""}
-            Walk ID: {walkId}
+            {createdLabel ? `${createdLabel} • ` : ""}Walk ID: {walkId}
           </div>
         </div>
 
@@ -157,7 +153,6 @@ export default function WalkPublicClient({ walkId }: { walkId: string }) {
         </div>
       </div>
 
-      {/* Stats cards */}
       <div style={statsGrid}>
         <Stat label="Duration" value={`${walk.durationMinutes} min`} />
         <Stat label="Distance" value={`${walk.distanceMiles.toFixed(2)} mi`} />
@@ -171,13 +166,11 @@ export default function WalkPublicClient({ walkId }: { walkId: string }) {
         ) : null}
       </div>
 
-      {/* Route */}
       <div style={sectionCard}>
         <div style={sectionTitle}>Route</div>
         <WalkViewerMap points={walk.routePoints || []} />
       </div>
 
-      {/* Notes */}
       <div style={sectionCard}>
         <div style={sectionTitle}>Notes</div>
         <div style={{ opacity: 0.9, fontSize: 16 }}>
@@ -185,7 +178,6 @@ export default function WalkPublicClient({ walkId }: { walkId: string }) {
         </div>
       </div>
 
-      {/* Media */}
       <div style={sectionCard}>
         <div style={sectionTitle}>Media</div>
         {photoUrls.length === 0 ? (
@@ -194,7 +186,6 @@ export default function WalkPublicClient({ walkId }: { walkId: string }) {
           <div style={mediaGrid}>
             {photoUrls.map((url, idx) => (
               <div key={idx} style={mediaItem}>
-                {/* plain img avoids next/image host config issues */}
                 <img
                   src={url}
                   alt={`Photo ${idx + 1}`}
@@ -211,7 +202,7 @@ export default function WalkPublicClient({ walkId }: { walkId: string }) {
         )}
       </div>
 
-      {/* Preview modal */}
+      {/* ✅ FULL IMAGE VIEWER MODAL */}
       {showPreview ? (
         <div style={modalOverlay} onClick={closePreview}>
           <div style={modalCard} onClick={(e) => e.stopPropagation()}>
@@ -226,7 +217,7 @@ export default function WalkPublicClient({ walkId }: { walkId: string }) {
 
             <div style={modalBody}>
               {!previewLoaded && !previewError ? (
-                <div style={{ opacity: 0.8, padding: 12 }}>
+                <div style={{ opacity: 0.85, padding: 12 }}>
                   Building preview…
                 </div>
               ) : null}
@@ -371,16 +362,16 @@ const mediaItem: React.CSSProperties = {
 const modalOverlay: React.CSSProperties = {
   position: "fixed",
   inset: 0,
-  background: "rgba(0,0,0,0.65)",
+  background: "rgba(0,0,0,0.70)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
   padding: 14,
-  zIndex: 50,
+  zIndex: 9999,
 };
 
 const modalCard: React.CSSProperties = {
-  width: "min(980px, 100%)",
+  width: "min(720px, 100%)",
   maxHeight: "92vh",
   overflow: "auto",
   borderRadius: 18,

@@ -5,13 +5,6 @@ export const runtime = "edge";
 
 type LatLng = { lat: number; lng: number };
 
-function computeEarned(durationMinutes: number): number {
-  // Your rule: $20 per 30 minutes
-  if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) return 0;
-  const blocks = Math.round(durationMinutes / 30); // 30 => 1, 60 => 2
-  return blocks * 20;
-}
-
 function buildStaticMapUrl(params: {
   points: LatLng[];
   width: number;
@@ -25,7 +18,6 @@ function buildStaticMapUrl(params: {
 
   const coords = points.map((p) => [p.lng, p.lat]);
 
-  // Dark line like your old card
   const feature = {
     type: "Feature",
     properties: {
@@ -78,7 +70,6 @@ async function fetchWalk(id: string) {
         : null;
 
   const weatherSummary = f.weatherSummary?.stringValue || "";
-
   const notes = f.notes?.stringValue || "";
 
   const createdAt = f.createdAt?.timestampValue
@@ -135,35 +126,28 @@ export async function GET(
   const W = 1080;
   const H = 1920;
 
-  const mapUrl = buildStaticMapUrl({
-    points: walk.routePoints,
-    width: 1080,
-    height: 560,
-  });
-
-  const earned = computeEarned(walk.durationMinutes);
-
-  const createdLabel = walk.createdAt ? walk.createdAt.toLocaleString() : "";
-
-  // Layout sizes (matching your old card)
   const pad = 48;
   const headerH = 170;
   const mapH = 560;
-  const statsH = 280;
+  const statsH = 270;
   const gap = 24;
 
-  const mapY = headerH + 10;
-  const statsY = mapY + mapH + gap;
-  const photosY = statsY + statsH + gap;
+  const mapUrl = buildStaticMapUrl({
+    points: walk.routePoints,
+    width: 1080,
+    height: mapH,
+  });
+
+  const createdLabel = walk.createdAt ? walk.createdAt.toLocaleString() : "";
+
+  const photosY = headerH + 10 + mapH + gap + statsH + gap;
   const photosH = H - photosY - pad;
 
-  // photo grid
   const cols = 3;
   const rows = 2;
   const cellGap = 16;
   const gridPad = 22;
-  const gridX = pad + gridPad;
-  const gridY = photosY + 88;
+
   const gridW = W - pad * 2 - gridPad * 2;
   const gridH = photosH - 110;
   const cellW = Math.floor((gridW - cellGap * (cols - 1)) / cols);
@@ -211,7 +195,6 @@ export async function GET(
           borderRadius: 28,
           overflow: "hidden",
           background: "rgba(255,255,255,0.06)",
-          border: "1px solid rgba(255,255,255,0.06)",
         }}
       >
         {mapUrl ? (
@@ -240,7 +223,6 @@ export async function GET(
           height: `${statsH}px`,
           borderRadius: 28,
           background: "rgba(255,255,255,0.06)",
-          border: "1px solid rgba(255,255,255,0.06)",
           padding: 28,
           boxSizing: "border-box",
           display: "flex",
@@ -289,7 +271,7 @@ export async function GET(
             >
               Weather
             </div>
-            <div style={{ marginTop: 10, fontSize: 52, fontWeight: 900 }}>
+            <div style={{ marginTop: 10, fontSize: 46, fontWeight: 900 }}>
               {walk.tempF != null ? `${walk.tempF}°F` : "—"}{" "}
               {walk.weatherSummary || ""}
             </div>
@@ -306,28 +288,8 @@ export async function GET(
           >
             Notes
           </div>
-          <div
-            style={{
-              marginTop: 8,
-              fontSize: 30,
-              fontWeight: 500,
-              color: "white",
-            }}
-          >
+          <div style={{ marginTop: 8, fontSize: 30, fontWeight: 500 }}>
             {(walk.notes || "").trim() || "—"}
-          </div>
-
-          {/* ADMIN-only info could go here later.
-                For now we keep it off the image if you prefer. */}
-          <div
-            style={{
-              marginTop: 10,
-              fontSize: 24,
-              fontWeight: 700,
-              color: "rgba(255,255,255,0.55)",
-            }}
-          >
-            Earned: ${earned.toFixed(2)}
           </div>
         </div>
       </div>
@@ -338,10 +300,9 @@ export async function GET(
           marginTop: `${gap}px`,
           borderRadius: 28,
           background: "rgba(255,255,255,0.06)",
-          border: "1px solid rgba(255,255,255,0.06)",
-          height: `${photosH}px`,
           padding: 22,
           boxSizing: "border-box",
+          height: `${photosH}px`,
           display: "flex",
           flexDirection: "column",
           gap: 14,
@@ -359,7 +320,6 @@ export async function GET(
 
         <div
           style={{
-            position: "relative",
             flex: 1,
             display: "grid",
             gridTemplateColumns: `repeat(${cols}, ${cellW}px)`,
@@ -367,7 +327,6 @@ export async function GET(
             gap: `${cellGap}px`,
             justifyContent: "center",
             alignContent: "start",
-            paddingTop: 6,
           }}
         >
           {Array.from({ length: 6 }).map((_, i) => {
@@ -381,7 +340,6 @@ export async function GET(
                   borderRadius: 20,
                   overflow: "hidden",
                   background: "rgba(0,0,0,0.25)",
-                  border: "1px solid rgba(255,255,255,0.08)",
                 }}
               >
                 {src ? (
