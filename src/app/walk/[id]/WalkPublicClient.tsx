@@ -83,9 +83,9 @@ export default function WalkPublicClient({ walkId }: { walkId: string }) {
 
   async function copyLink() {
     try {
-      await navigator.clipboard.writeText(
-        window.location.href.replace("?admin=1", ""),
-      );
+      const u = new URL(window.location.href);
+      u.searchParams.delete("admin");
+      await navigator.clipboard.writeText(u.toString());
       alert("Link copied!");
     } catch {
       alert("Could not copy link on this device.");
@@ -93,21 +93,40 @@ export default function WalkPublicClient({ walkId }: { walkId: string }) {
   }
 
   async function showPreview() {
-    if (!walk || previewBusy) return;
+    if (!walkId || previewBusy) return;
     setPreviewBusy(true);
 
     try {
-      const r = await fetch(`/api/recap-image/${walkId}`);
-      if (!r.ok) throw new Error("Failed to generate preview");
+      // ✅ correct route: /walk/[id]/recap-image
+      const r = await fetch(`/walk/${walkId}/recap-image`, {
+        cache: "no-store",
+      });
+      if (!r.ok) {
+        const txt = await r.text().catch(() => "");
+        console.error("Preview route failed:", r.status, txt);
+        throw new Error(`Preview failed (${r.status})`);
+      }
 
       const blob = await r.blob();
-      const url = URL.createObjectURL(blob);
-      setPreviewUrl(url);
-    } catch (e) {
+
+      // Replace any existing object URL
+      setPreviewUrl((old) => {
+        if (old) URL.revokeObjectURL(old);
+        return URL.createObjectURL(blob);
+      });
+    } catch (e: any) {
+      console.error(e);
       alert("Could not generate preview image.");
     } finally {
       setPreviewBusy(false);
     }
+  }
+
+  function closePreview() {
+    setPreviewUrl((old) => {
+      if (old) URL.revokeObjectURL(old);
+      return null;
+    });
   }
 
   if (!walkId || loading) return <div style={wrap}>Loading…</div>;
@@ -190,26 +209,24 @@ export default function WalkPublicClient({ walkId }: { walkId: string }) {
           </div>
 
           {/* Notes */}
-          {walk.notes ? (
-            <div className="section">
-              <div className="sectionTitle">Notes</div>
-              <div style={{ opacity: 0.85, whiteSpace: "pre-wrap" }}>
-                {walk.notes}
-              </div>
+          <div className="section">
+            <div className="sectionTitle">Notes</div>
+            <div style={{ opacity: 0.85, whiteSpace: "pre-wrap" }}>
+              {(walk.notes || "").trim() || "—"}
             </div>
-          ) : null}
+          </div>
 
           {/* Media */}
-          {walk.media.length > 0 ? (
+          {walk.media?.length ? (
             <div className="section">
-              <div className="sectionTitle">Photos</div>
+              <div className="sectionTitle">Media</div>
               <div className="mediaGrid">
                 {walk.media.map((m, i) => (
-                  <div key={i} className="mediaItem">
+                  <div key={`${m.path || m.url}-${i}`} className="mediaItem">
                     {m.type === "video" ? (
-                      <video src={m.url} controls />
+                      <video src={m.url} controls playsInline />
                     ) : (
-                      <img src={m.url} alt="" />
+                      <img src={m.url} alt={m.name || "photo"} />
                     )}
                   </div>
                 ))}
@@ -218,9 +235,9 @@ export default function WalkPublicClient({ walkId }: { walkId: string }) {
           ) : null}
 
           {/* Preview modal */}
-          {previewUrl && (
+          {isAdmin && previewUrl ? (
             <div
-              onClick={() => setPreviewUrl(null)}
+              onClick={closePreview}
               style={{
                 position: "fixed",
                 inset: 0,
@@ -242,7 +259,7 @@ export default function WalkPublicClient({ walkId }: { walkId: string }) {
                 }}
               />
             </div>
-          )}
+          ) : null}
         </div>
       </div>
     </div>
