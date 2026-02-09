@@ -1,314 +1,276 @@
-// src/app/dashboard/page.tsx
-"use client";
+/* src/app/dashboard/dashboard.module.css */
 
-import React, { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { collection, getDocs, orderBy, query } from "firebase/firestore";
-import { db } from "../lib/firebase";
-import styles from "./dashboard.module.css";
-
-type WalkDoc = {
-  id: string;
-  dogs?: string;
-  durationMinutes?: number;
-  distanceMiles?: number;
-  weatherSummary?: string;
-  tempF?: number | null;
-  amountDue?: number | null; // internal-only
-  createdAt?: any; // Firestore Timestamp
-};
-
-function toDateSafe(ts: any): Date | null {
-  try {
-    if (!ts) return null;
-    if (typeof ts?.toDate === "function") return ts.toDate();
-  } catch {}
-  return null;
+.wrap {
+  min-height: 100vh;
+  background: #0b0b0c;
+  color: white;
+  padding: 16px;
 }
 
-// Most recent Friday 00:00 local time
-function startOfPayWeek(now = new Date()): Date {
-  const d = new Date(now);
-  d.setHours(0, 0, 0, 0);
-  const day = d.getDay(); // Sun=0 ... Fri=5
-  const daysSinceFriday = (day - 5 + 7) % 7;
-  d.setDate(d.getDate() - daysSinceFriday);
-  return d;
-}
-function endOfPayWeek(start: Date): Date {
-  const d = new Date(start);
-  d.setDate(d.getDate() + 7);
-  return d;
-}
-function fmtMoney(n: number) {
-  return `$${n.toFixed(2)}`;
-}
-function fmtDate(d: Date) {
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-function fmtDateTime(d: Date) {
-  return d.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-function dayKey(d: Date) {
-  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+.title {
+  font-size: 28px;
+  font-weight: 950;
 }
 
-export default function DashboardPage() {
-  const [walks, setWalks] = useState<WalkDoc[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState("");
+.sub {
+  margin-top: 6px;
+  opacity: 0.75;
+  font-size: 13px;
+}
 
-  const [monthCursor, setMonthCursor] = useState(() => {
-    const d = new Date();
-    d.setDate(1);
-    d.setHours(0, 0, 0, 0);
-    return d;
-  });
+.dim {
+  opacity: 0.75;
+}
 
-  useEffect(() => {
-    let alive = true;
+.dimSmall {
+  opacity: 0.7;
+  font-size: 12px;
+}
 
-    async function load() {
-      try {
-        setLoading(true);
-        setErr("");
+.dimTiny {
+  opacity: 0.6;
+  font-size: 12px;
+}
 
-        const qy = query(collection(db, "walks"), orderBy("createdAt", "desc"));
-        const snap = await getDocs(qy);
+.error {
+  color: #ffb4b4;
+}
 
-        const out: WalkDoc[] = [];
-        snap.forEach((docSnap) => {
-          const data = docSnap.data() as any;
-          out.push({ id: docSnap.id, ...data });
-        });
+.headerRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
 
-        if (!alive) return;
-        setWalks(out);
-      } catch (e: any) {
-        if (!alive) return;
-        setErr(e?.message || "Failed to load walks.");
-      } finally {
-        if (alive) setLoading(false);
-      }
-    }
+.kpiCard {
+  border-radius: 16px;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  min-width: 260px;
+}
 
-    load();
-    return () => {
-      alive = false;
-    };
-  }, []);
+.kpiLabel {
+  opacity: 0.75;
+  font-weight: 800;
+  font-size: 12px;
+}
 
-  const payStart = useMemo(() => startOfPayWeek(new Date()), []);
-  const payEnd = useMemo(() => endOfPayWeek(payStart), [payStart]);
+.kpiValue {
+  font-size: 34px;
+  font-weight: 950;
+  margin-top: 6px;
+}
 
-  const payWeekWalks = useMemo(() => {
-    return walks.filter((w) => {
-      const d = toDateSafe(w.createdAt);
-      if (!d) return false;
-      return d >= payStart && d < payEnd;
-    });
-  }, [walks, payStart, payEnd]);
+.kpiSub {
+  opacity: 0.7;
+  font-size: 12px;
+  margin-top: 4px;
+}
 
-  const payTotal = useMemo(() => {
-    return payWeekWalks.reduce((sum, w) => sum + (Number(w.amountDue) || 0), 0);
-  }, [payWeekWalks]);
+/* Desktop grid */
+.grid {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 14px;
+}
 
-  const calendar = useMemo(() => {
-    const year = monthCursor.getFullYear();
-    const month = monthCursor.getMonth();
+/* Cards */
+.card {
+  border-radius: 18px;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  overflow: hidden;
+  min-height: 200px;
+}
 
-    const first = new Date(year, month, 1);
-    const last = new Date(year, month + 1, 0);
+.cardHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 10px;
+}
 
-    const start = new Date(first);
-    start.setDate(first.getDate() - first.getDay()); // Sunday
+.cardTitle {
+  font-size: 18px;
+  font-weight: 950;
+}
 
-    const end = new Date(last);
-    end.setDate(last.getDate() + (6 - last.getDay())); // Saturday
+/* Month nav */
+.monthNav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 
-    const days: Date[] = [];
-    const cur = new Date(start);
-    cur.setHours(0, 0, 0, 0);
-    while (cur <= end) {
-      days.push(new Date(cur));
-      cur.setDate(cur.getDate() + 1);
-    }
+.navBtn {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+  color: white;
+  font-weight: 900;
+  cursor: pointer;
+}
 
-    const byDay = new Map<string, { count: number; total: number }>();
-    for (const w of walks) {
-      const d = toDateSafe(w.createdAt);
-      if (!d) continue;
-      const k = dayKey(new Date(d.getFullYear(), d.getMonth(), d.getDate()));
-      const agg = byDay.get(k) || { count: 0, total: 0 };
-      agg.count += 1;
-      agg.total += Number(w.amountDue) || 0;
-      byDay.set(k, agg);
-    }
+.monthLabel {
+  font-weight: 950;
+  opacity: 0.9;
+  min-width: 170px;
+  text-align: center;
+}
 
-    return { days, byDay, month, year };
-  }, [monthCursor, walks]);
+/* Calendar */
+.dowRow {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+  margin-bottom: 8px;
+}
 
-  const monthLabel = useMemo(() => {
-    return monthCursor.toLocaleDateString(undefined, {
-      month: "long",
-      year: "numeric",
-    });
-  }, [monthCursor]);
+.dow {
+  opacity: 0.65;
+  font-weight: 800;
+  font-size: 12px;
+  text-align: center;
+}
 
-  const recent = useMemo(() => walks.slice(0, 80), [walks]);
+.calGrid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+}
 
-  if (loading) {
-    return (
-      <div className={styles.wrap}>
-        <div className={styles.title}>SmartWalk Dashboard</div>
-        <div className={styles.dim}>Loading…</div>
-      </div>
-    );
+.dayCell {
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.15);
+  padding: 10px;
+  min-height: 78px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.outMonth {
+  opacity: 0.35;
+}
+
+.dayNum {
+  font-weight: 950;
+  font-size: 14px;
+  opacity: 0.9;
+}
+
+.pill {
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pillMoney {
+  opacity: 0.85;
+}
+
+/* Walk list */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 78vh;
+  overflow: auto;
+  padding-right: 6px;
+}
+
+.rowLink {
+  text-decoration: none;
+  color: inherit;
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.18);
+  transition: transform 0.08s ease;
+}
+
+.rowLink:active {
+  transform: scale(0.99);
+}
+
+.rowLeft {
+  flex: 1;
+  min-width: 0;
+}
+
+.rowTitle {
+  font-weight: 950;
+}
+
+.rowWhen {
+  opacity: 0.65;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.rowMeta {
+  opacity: 0.75;
+  font-size: 13px;
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rowRight {
+  text-align: right;
+  min-width: 88px;
+}
+
+.money {
+  font-weight: 950;
+}
+
+/* ✅ Mobile friendliness */
+@media (max-width: 980px) {
+  .grid {
+    grid-template-columns: 1fr;
   }
 
-  if (err) {
-    return (
-      <div className={styles.wrap}>
-        <div className={styles.title}>SmartWalk Dashboard</div>
-        <div className={styles.error}>Error: {err}</div>
-      </div>
-    );
+  .monthLabel {
+    min-width: 130px;
   }
 
-  return (
-    <div className={styles.wrap}>
-      <div className={styles.headerRow}>
-        <div>
-          <div className={styles.title}>SmartWalk Dashboard</div>
-          <div className={styles.sub}>
-            Pay week: <b>{fmtDate(payStart)}</b> → <b>{fmtDate(payEnd)}</b>
-          </div>
-        </div>
+  .list {
+    max-height: none;
+  }
+}
 
-        <div className={styles.kpiCard}>
-          <div className={styles.kpiLabel}>Earned this pay week</div>
-          <div className={styles.kpiValue}>{fmtMoney(payTotal)}</div>
-          <div className={styles.kpiSub}>Walks: {payWeekWalks.length}</div>
-        </div>
-      </div>
+@media (max-width: 420px) {
+  .wrap {
+    padding: 12px;
+  }
 
-      <div className={styles.grid}>
-        {/* Calendar */}
-        <div className={styles.card}>
-          <div className={styles.cardHeader}>
-            <div className={styles.cardTitle}>Monthly Calendar</div>
-            <div className={styles.monthNav}>
-              <button
-                className={styles.navBtn}
-                onClick={() => {
-                  const d = new Date(monthCursor);
-                  d.setMonth(d.getMonth() - 1);
-                  setMonthCursor(d);
-                }}
-              >
-                ◀
-              </button>
-              <div className={styles.monthLabel}>{monthLabel}</div>
-              <button
-                className={styles.navBtn}
-                onClick={() => {
-                  const d = new Date(monthCursor);
-                  d.setMonth(d.getMonth() + 1);
-                  setMonthCursor(d);
-                }}
-              >
-                ▶
-              </button>
-            </div>
-          </div>
+  .title {
+    font-size: 22px;
+  }
 
-          <div className={styles.dowRow}>
-            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-              <div key={d} className={styles.dow}>
-                {d}
-              </div>
-            ))}
-          </div>
+  .rowLink {
+    padding: 12px;
+  }
 
-          <div className={styles.calGrid}>
-            {calendar.days.map((d) => {
-              const inMonth = d.getMonth() === calendar.month;
-              const k = dayKey(d);
-              const agg = calendar.byDay.get(k);
-
-              return (
-                <div
-                  key={k}
-                  className={`${styles.dayCell} ${!inMonth ? styles.outMonth : ""}`}
-                >
-                  <div className={styles.dayNum}>{d.getDate()}</div>
-                  {agg ? (
-                    <div className={styles.pill}>
-                      <div>
-                        <b>{agg.count}</b> walk{agg.count === 1 ? "" : "s"}
-                      </div>
-                      <div className={styles.pillMoney}>{fmtMoney(agg.total)}</div>
-                    </div>
-                  ) : (
-                    <div style={{ height: 28 }} />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Walk list */}
-        <div className={styles.card}>
-          <div className={styles.cardHeader}>
-            <div className={styles.cardTitle}>All Walks</div>
-            <div className={styles.dimSmall}>Tap a walk to open it</div>
-          </div>
-
-          <div className={styles.list}>
-            {recent.map((w) => {
-              const d = toDateSafe(w.createdAt);
-              const when = d ? fmtDateTime(d) : "—";
-              const due = Number(w.amountDue) || 0;
-
-              return (
-                <Link
-                  key={w.id}
-                  href={`/walk/${w.id}?admin=1`}
-                  className={styles.rowLink}
-                >
-                  <div className={styles.rowLeft}>
-                    <div className={styles.rowTitle}>
-                      {w.dogs || "Walk"}{" "}
-                      <span className={styles.rowWhen}>({when})</span>
-                    </div>
-                    <div className={styles.rowMeta}>
-                      {w.durationMinutes ?? 0} min •{" "}
-                      {(w.distanceMiles ?? 0).toFixed(2)} mi
-                      {w.weatherSummary ? ` • ${w.weatherSummary}` : ""}
-                    </div>
-                  </div>
-
-                  <div className={styles.rowRight}>
-                    <div className={styles.money}>{fmtMoney(due)}</div>
-                    <div className={styles.dimTiny}>earned</div>
-                  </div>
-                </Link>
-              );
-            })}
-
-            {recent.length === 0 ? (
-              <div className={styles.dim}>No walks yet.</div>
-            ) : null}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  .kpiCard {
+    min-width: 100%;
+  }
 }
