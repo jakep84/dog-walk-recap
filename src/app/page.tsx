@@ -146,7 +146,7 @@ export default function Page() {
         createdAtLabel,
         routePoints,
         photoUrls,
-        amountDue,
+        // amountDue,
         walkId,
       });
 
