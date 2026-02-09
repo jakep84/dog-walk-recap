@@ -85,8 +85,8 @@ export async function generateWalkRecapPng(params: {
   createdAtLabel?: string;
   routePoints: LatLng[];
   photoUrls: string[]; // only images for now
-  amountDue?: number | null; // ✅ NEW (optional): show on the recap
-  walkId?: string; // ✅ NEW (optional): tiny footer id
+  amountDue?: number | null; // show on the recap
+  walkId?: string; // tiny footer id
 }): Promise<Blob> {
   const W = 1080;
   const H = 1920;
@@ -94,7 +94,9 @@ export async function generateWalkRecapPng(params: {
   const canvas = document.createElement("canvas");
   canvas.width = W;
   canvas.height = H;
-  const ctx = canvas.getContext("2d");
+
+  // ✅ Non-null assertion so TS doesn't complain inside nested functions
+  const ctx = canvas.getContext("2d")!;
   if (!ctx) throw new Error("Canvas not supported");
 
   // Background
@@ -112,22 +114,21 @@ export async function generateWalkRecapPng(params: {
   const headerMetaY = headerSubY + 42;
 
   // Sections
-  const mapY = 230; // ✅ give breathing room after header
+  const mapY = 230;
   const mapH = 610;
 
   const statsY = mapY + mapH + 24;
-  const statsH = 210; // stats only (numbers)
+  const statsH = 210;
 
   const notesY = statsY + statsH + 18;
   const notesH = 165;
 
   const photosY = notesY + notesH + 22;
-  const photosH = H - photosY - 56; // leave bottom padding
+  const photosH = H - photosY - 56;
 
   // ===== Header =====
   ctx.fillStyle = "#ffffff";
 
-  // Make dogs the hero; keep "Walk Recap" smaller
   ctx.font = "800 46px Arial";
   safeText(ctx, "Walk Recap", pad, headerTitleY);
 
@@ -146,7 +147,6 @@ export async function generateWalkRecapPng(params: {
   // ===== Map card =====
   const mapW = W - pad * 2;
 
-  // Card background
   ctx.fillStyle = "rgba(255,255,255,0.06)";
   roundRect(ctx, pad, mapY, mapW, mapH, cardRadius);
   ctx.fill();
@@ -176,7 +176,6 @@ export async function generateWalkRecapPng(params: {
   roundRect(ctx, pad, statsY, mapW, statsH, cardRadius);
   ctx.fill();
 
-  // 4 columns
   const cols = 4;
   const innerPad = 28;
   const colW = (mapW - innerPad * 2) / cols;
@@ -210,13 +209,10 @@ export async function generateWalkRecapPng(params: {
   drawStat(0, "Duration", `${params.durationMinutes} min`);
   drawStat(1, "Distance", `${params.distanceMiles.toFixed(2)} mi`);
 
-  // ✅ Weather is split onto two lines now (no crowding)
   const temp = params.weather?.temperatureF;
   const summary = (params.weather?.summary || "").trim();
-
   drawStat(2, "Weather", temp != null ? `${temp}°F` : "—", summary || "—");
 
-  // ✅ Amount Due
   drawStat(3, "Due", formatMoney(params.amountDue ?? null));
 
   // ===== Notes card =====
@@ -266,7 +262,6 @@ export async function generateWalkRecapPng(params: {
   const rawUrls = (params.photoUrls || []).slice(0, photoCols * photoRows);
   const urls = rawUrls.map((u) => maybeProxyUrl(u));
 
-  // Always draw 6 slots; fill missing with placeholders
   const maxSlots = photoCols * photoRows;
   for (let i = 0; i < maxSlots; i++) {
     const r = Math.floor(i / photoCols);
@@ -281,7 +276,6 @@ export async function generateWalkRecapPng(params: {
         const img = await fetchImageBitmap(urls[i]);
         drawRoundedImage(ctx, img, x, y, cellW, cellH, slotRadius);
       } catch {
-        // If an image fails, draw a placeholder instead of crashing.
         drawPlaceholderTile(
           ctx,
           x,
@@ -302,8 +296,8 @@ export async function generateWalkRecapPng(params: {
     ctx.fillStyle = "rgba(255,255,255,0.35)";
     ctx.font = "600 20px Arial";
     const txt = `ID: ${params.walkId}`;
-    const w = ctx.measureText(txt).width;
-    safeText(ctx, txt, W - pad - w, H - 26);
+    const tw = ctx.measureText(txt).width;
+    safeText(ctx, txt, W - pad - tw, H - 26);
   }
 
   // Export
@@ -347,7 +341,6 @@ function drawRoundedImage(
   roundRect(ctx, x, y, w, h, r);
   ctx.clip();
 
-  // cover fit
   const imgRatio = img.width / img.height;
   const boxRatio = w / h;
   let drawW = w;
