@@ -1,21 +1,18 @@
 // src/app/page.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import WalkMap from "./components/WalkMap";
-import type { LatLng } from "./lib/geo";
+import { LatLng } from "./lib/geo";
 
 import { createWalk } from "./lib/saveWalk";
-import { uploadMedia, type WalkMedia } from "./lib/uploadMedia";
+import { uploadMedia } from "./lib/uploadMedia";
 import { db } from "./lib/firebase";
 import { doc, updateDoc } from "firebase/firestore";
 
 import styles from "./page.module.css";
-
-// ✅ NEW: generates the single recap PNG (canvas + static map + collage)
-import { generateWalkRecapPng } from "./lib/recapImage";
 
 type WeatherNow = { temperatureF: number; summary: string };
 
@@ -24,9 +21,6 @@ export default function Page() {
 
   const [durationMinutes, setDurationMinutes] = useState<number>(60);
   const [dogs, setDogs] = useState<string>("Corvi and Irma");
-
-  // ✅ NEW: pricing so payday is easy
-  const [ratePerHour, setRatePerHour] = useState<number>(40);
 
   const [routePoints, setRoutePoints] = useState<LatLng[]>([]);
   const [distanceMiles, setDistanceMiles] = useState<number>(0);
@@ -39,12 +33,6 @@ export default function Page() {
 
   const [files, setFiles] = useState<File[]>([]);
   const [publishing, setPublishing] = useState(false);
-
-  // ✅ Derived: how much this walk costs
-  const amountDue = useMemo(() => {
-    const amt = (Number(durationMinutes) / 60) * Number(ratePerHour || 0);
-    return Math.round(amt * 100) / 100;
-  }, [durationMinutes, ratePerHour]);
 
   // Fetch weather based on current location once
   useEffect(() => {
@@ -79,9 +67,6 @@ export default function Page() {
       weatherSummary,
       notes,
       routePoints,
-      ratePerHour,
-      amountDue,
-      // NOTE: files + recap image not stored in local draft right now
     };
 
     const existing = JSON.parse(localStorage.getItem("walkReports") || "[]");
@@ -96,9 +81,7 @@ export default function Page() {
     setPublishing(true);
 
     try {
-      const walkDateISO = new Date().toISOString();
-
-      // 1️⃣ Create walk document first (no public page required)
+      // 1) Create walk document
       const walkId = await createWalk({
         dogs,
         durationMinutes,
@@ -108,69 +91,26 @@ export default function Page() {
         notes,
         routePoints,
         media: [],
-        ratePerHour,
-        amountDue,
-        walkDate: walkDateISO,
-        // recapImageUrl/path added after we generate + upload it
+        // IMPORTANT: make sure you are storing amountDue in the doc elsewhere
+        // (your dashboard will sum it). If you already do, ignore this comment.
       });
 
-      // 2️⃣ Upload media selected by user (photos/videos)
-      const uploadedMedia: WalkMedia[] = [];
+      // 2) Upload media
+      const uploadedMedia = [];
       for (const file of files) {
         const media = await uploadMedia(walkId, file);
         uploadedMedia.push(media);
       }
 
-      // 3️⃣ Generate ONE recap PNG (map + stats + collage of photos)
-      const photoUrls = uploadedMedia
-        .filter((m) => m.type === "image")
-        .map((m) => m.url);
+      // 3) Update document with media URLs
+      if (uploadedMedia.length > 0) {
+        await updateDoc(doc(db, "walks", walkId), {
+          media: uploadedMedia,
+        });
+      }
 
-      const createdAtLabel = new Date().toLocaleString();
-
-      // Prefer the user-edited temp/weather fields; fallback to fetched weather
-      const finalTemp =
-        tempF !== "" ? Number(tempF) : weather ? weather.temperatureF : null;
-      const finalSummary =
-        (weatherSummary || "").trim() || weather?.summary || "";
-
-      const recapBlob = await generateWalkRecapPng({
-        dogs,
-        durationMinutes,
-        distanceMiles,
-        weather:
-          finalTemp !== null
-            ? { temperatureF: finalTemp, summary: finalSummary }
-            : null,
-        notes,
-        createdAtLabel,
-        routePoints,
-        photoUrls,
-        // amountDue,
-        walkId,
-      });
-
-      const recapFile = new File([recapBlob], `walk-recap-${walkId}.png`, {
-        type: "image/png",
-      });
-
-      const recapMedia = await uploadMedia(walkId, recapFile);
-
-      // 4️⃣ Update walk doc with media + recap image + pricing fields
-      await updateDoc(doc(db, "walks", walkId), {
-        media: uploadedMedia,
-        recapImageUrl: recapMedia.url,
-        recapImagePath: recapMedia.path,
-        ratePerHour,
-        amountDue,
-        walkDate: walkDateISO,
-      });
-
-      // ✅ For now: just open the recap image (single deliverable)
-      window.open(recapMedia.url, "_blank", "noopener,noreferrer");
-
-      // You can route wherever you want later (ledger page, etc.)
-      router.push(`/`);
+      // 4) Go to dashboard (your internal view)
+      router.push(`/dashboard?new=${walkId}`);
     } catch (err) {
       console.error(err);
       alert("Failed to publish walk. Check console.");
@@ -184,8 +124,8 @@ export default function Page() {
         <div>
           <div className={styles.headerLeftTitle}>Dog Walk Recap</div>
           <div className={styles.headerLeftSub}>
-            Draw route → auto distance • Auto weather • Upload media • Generate
-            1 recap image
+            Draw route → auto distance • Auto weather • Upload media • Save +
+            track
           </div>
         </div>
 
@@ -219,18 +159,6 @@ export default function Page() {
             onChange={(e) => setDurationMinutes(Number(e.target.value))}
             style={inputStyle}
             type="number"
-            min={0}
-          />
-
-          {/* ✅ NEW: Rate */}
-          <label style={labelStyle}>Rate ($/hour)</label>
-          <input
-            value={ratePerHour}
-            onChange={(e) => setRatePerHour(Number(e.target.value))}
-            style={inputStyle}
-            type="number"
-            min={0}
-            step={1}
           />
 
           <div style={{ display: "flex", gap: 10 }}>
@@ -281,10 +209,6 @@ export default function Page() {
             <div>Distance: {distanceMiles} miles</div>
             <div>Temp: {tempF || "—"}°F</div>
             <div>Weather: {weatherSummary || "—"}</div>
-            <div>Rate: ${ratePerHour}/hr</div>
-            <div>
-              <b>Amount Due: ${amountDue.toFixed(2)}</b>
-            </div>
             <div>Media files: {files.length}</div>
           </div>
         </div>
