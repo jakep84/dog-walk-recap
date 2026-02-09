@@ -1,4 +1,3 @@
-// src/app/walk/[id]/WalkPublicClient.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -6,8 +5,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import type { WalkMedia } from "../../lib/uploadMedia";
 import dynamic from "next/dynamic";
-import { useSearchParams } from "next/navigation";
-import { generateWalkRecapPng } from "../../lib/recapImage";
+import { useRouter, useSearchParams } from "next/navigation";
 import "./components/walk-public.css";
 
 const WalkViewerMap = dynamic(() => import("./components/WalkViewerMap"), {
@@ -26,31 +24,19 @@ type WalkDoc = {
   routePoints: LatLng[];
   media: WalkMedia[];
   createdAt?: any;
-  amountDue?: number | null; // internal-only (not shown to client)
 };
 
-function fmtDateTime(d: Date) {
-  return d.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
 export default function WalkPublicClient({ walkId }: { walkId: string }) {
-  const search = useSearchParams();
-  const isAdmin = search.get("admin") === "1";
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const isAdmin = searchParams.get("admin") === "1";
 
   const [walk, setWalk] = useState<WalkDoc | null>(null);
-  const [err, setErr] = useState<string>("");
+  const [err, setErr] = useState("");
   const [loading, setLoading] = useState(true);
 
-  // preview modal
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState<string>("");
   const [previewBusy, setPreviewBusy] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!walkId) return;
@@ -89,18 +75,11 @@ export default function WalkPublicClient({ walkId }: { walkId: string }) {
     if (!walk?.createdAt) return "";
     try {
       if (typeof walk.createdAt?.toDate === "function") {
-        return fmtDateTime(walk.createdAt.toDate());
+        return walk.createdAt.toDate().toLocaleString();
       }
     } catch {}
     return "";
   }, [walk?.createdAt]);
-
-  const imageUrls = useMemo(() => {
-    const media = walk?.media || [];
-    return media
-      .filter((m) => m?.type === "image" && typeof m?.url === "string")
-      .map((m) => m.url);
-  }, [walk?.media]);
 
   async function copyLink() {
     try {
@@ -118,213 +97,161 @@ export default function WalkPublicClient({ walkId }: { walkId: string }) {
     setPreviewBusy(true);
 
     try {
-      // revoke old url if any
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      const r = await fetch(`/api/recap-image/${walkId}`);
+      if (!r.ok) throw new Error("Failed to generate preview");
 
-      const blob = await generateWalkRecapPng({
-        dogs: walk.dogs,
-        durationMinutes: walk.durationMinutes,
-        distanceMiles: walk.distanceMiles,
-        weather: {
-          temperatureF: walk.tempF ?? null,
-          summary: walk.weatherSummary || "",
-        },
-        notes: walk.notes || "",
-        createdAtLabel: createdLabel || "",
-        routePoints: walk.routePoints || [],
-        photoUrls: imageUrls,
-        walkId,
-      });
-
+      const blob = await r.blob();
       const url = URL.createObjectURL(blob);
       setPreviewUrl(url);
-      setPreviewOpen(true);
-    } catch (e: any) {
-      console.error(e);
-      alert(e?.message || "Failed to generate preview image.");
+    } catch (e) {
+      alert("Could not generate preview image.");
     } finally {
       setPreviewBusy(false);
     }
   }
 
-  function closePreview() {
-    setPreviewOpen(false);
-  }
-
-  if (!walkId) return <div className="walkWrap">Loading…</div>;
-  if (loading) return <div className="walkWrap">Loading…</div>;
-  if (err) return <div className="walkWrap">Error: {err}</div>;
-  if (!walk) return <div className="walkWrap">No data.</div>;
+  if (!walkId || loading) return <div style={wrap}>Loading…</div>;
+  if (err) return <div style={wrap}>Error: {err}</div>;
+  if (!walk) return <div style={wrap}>No data.</div>;
 
   return (
-    <div className="walkWrap">
-      <div className="walkCard">
-        {/* Header */}
-        <div className="walkHeader">
-          <div>
-            <div className="walkTitle">{walk.dogs || "Dog Walk"}</div>
-            <div className="walkSub">
-              {createdLabel ? createdLabel : ""} {createdLabel ? "• " : ""}
-              Walk ID: {walkId}
-            </div>
-          </div>
-
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button className="copyBtn" onClick={copyLink}>
-              Copy Link
-            </button>
-
-            {isAdmin ? (
-              <button
-                className="copyBtn"
-                onClick={showPreview}
-                disabled={previewBusy}
-                style={{ background: previewBusy ? "#d6d6d6" : "white" }}
-              >
-                {previewBusy ? "Building…" : "Show Walk Preview"}
-              </button>
-            ) : null}
-          </div>
-        </div>
-
-        {/* Stats */}
-        <div className="statsRow">
-          <div className="statBox">
-            <div className="statLabel">Duration</div>
-            <div className="statValue">{walk.durationMinutes ?? 0} min</div>
-          </div>
-
-          <div className="statBox">
-            <div className="statLabel">Distance</div>
-            <div className="statValue">
-              {(walk.distanceMiles ?? 0).toFixed(2)} mi
-            </div>
-          </div>
-
-          <div className="statBox">
-            <div className="statLabel">Temp</div>
-            <div className="statValue">
-              {walk.tempF != null ? `${walk.tempF}°F` : "—"}
-            </div>
-          </div>
-
-          <div className="statBox">
-            <div className="statLabel">Weather</div>
-            <div className="statValue">{walk.weatherSummary || "—"}</div>
-          </div>
-
-          {/* Admin-only internal money display (NOT client-facing) */}
-          {isAdmin ? (
-            <div className="statBox">
-              <div className="statLabel">Earned</div>
-              <div className="statValue">
-                {typeof walk.amountDue === "number"
-                  ? `$${walk.amountDue.toFixed(2)}`
-                  : "—"}
+    <div style={wrap}>
+      <div className="walkWrap">
+        <div className="walkCard">
+          {/* Header */}
+          <div className="walkHeader">
+            <div>
+              <div className="walkTitle">{walk.dogs}</div>
+              <div className="walkSub">
+                {createdLabel} • Walk ID: {walkId}
               </div>
             </div>
-          ) : null}
-        </div>
 
-        {/* Route */}
-        <div className="section">
-          <div className="sectionTitle">Route</div>
-          <div className="leafletContainerFix">
-            <WalkViewerMap points={walk.routePoints || []} />
-          </div>
-        </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {isAdmin && (
+                <button
+                  className="copyBtn"
+                  onClick={() => router.push("/dashboard")}
+                >
+                  ← Dashboard
+                </button>
+              )}
 
-        {/* Notes */}
-        <div className="section">
-          <div className="sectionTitle">Notes</div>
-          <div style={{ opacity: 0.9, lineHeight: 1.4 }}>
-            {(walk.notes || "").trim() || "—"}
-          </div>
-        </div>
-
-        {/* Media */}
-        <div className="section">
-          <div className="sectionTitle">Media</div>
-
-          {walk.media?.length ? (
-            <div className="mediaGrid">
-              {walk.media.map((m, idx) => {
-                const key = `${m.path || m.url}-${idx}`;
-                if (m.type === "video") {
-                  return (
-                    <div key={key} className="mediaItem">
-                      <video src={m.url} controls playsInline />
-                    </div>
-                  );
-                }
-                return (
-                  <div key={key} className="mediaItem">
-                    <img src={m.url} alt={m.name || "photo"} />
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div style={{ opacity: 0.75 }}>No media uploaded.</div>
-          )}
-        </div>
-      </div>
-
-      {/* Preview Modal (admin only) */}
-      {isAdmin && previewOpen ? (
-        <div
-          onClick={closePreview}
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.72)",
-            display: "grid",
-            placeItems: "center",
-            zIndex: 9999,
-            padding: 14,
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              width: "min(560px, 100%)",
-              maxHeight: "92vh",
-              borderRadius: 16,
-              overflow: "hidden",
-              background: "#111",
-              border: "1px solid rgba(255,255,255,0.12)",
-            }}
-          >
-            <div
-              style={{
-                padding: 10,
-                display: "flex",
-                justifyContent: "space-between",
-                gap: 10,
-                alignItems: "center",
-                borderBottom: "1px solid rgba(255,255,255,0.10)",
-              }}
-            >
-              <div style={{ fontWeight: 900 }}>Walk Preview</div>
-              <button className="copyBtn" onClick={closePreview}>
-                Close
+              <button className="copyBtn" onClick={copyLink}>
+                Copy Link
               </button>
-            </div>
 
-            <div style={{ padding: 10, overflow: "auto", maxHeight: "86vh" }}>
-              {previewUrl ? (
-                <img
-                  src={previewUrl}
-                  alt="Walk recap"
-                  style={{ width: "100%", height: "auto", borderRadius: 12 }}
-                />
-              ) : (
-                <div style={{ opacity: 0.75 }}>No preview.</div>
+              {isAdmin && (
+                <button
+                  className="copyBtn"
+                  onClick={showPreview}
+                  disabled={previewBusy}
+                  style={{ background: previewBusy ? "#d6d6d6" : "white" }}
+                >
+                  {previewBusy ? "Building…" : "Show Walk Preview"}
+                </button>
               )}
             </div>
           </div>
+
+          {/* Stats */}
+          <div className="statsRow">
+            <div className="statBox">
+              <div className="statLabel">Duration</div>
+              <div className="statValue">{walk.durationMinutes} min</div>
+            </div>
+
+            <div className="statBox">
+              <div className="statLabel">Distance</div>
+              <div className="statValue">
+                {walk.distanceMiles.toFixed(2)} mi
+              </div>
+            </div>
+
+            <div className="statBox">
+              <div className="statLabel">Temp</div>
+              <div className="statValue">
+                {walk.tempF != null ? `${walk.tempF}°F` : "—"}
+              </div>
+            </div>
+
+            <div className="statBox">
+              <div className="statLabel">Weather</div>
+              <div className="statValue">{walk.weatherSummary || "—"}</div>
+            </div>
+          </div>
+
+          {/* Route */}
+          <div className="section">
+            <div className="sectionTitle">Route</div>
+            <div className="leafletContainerFix">
+              <WalkViewerMap points={walk.routePoints} />
+            </div>
+          </div>
+
+          {/* Notes */}
+          {walk.notes ? (
+            <div className="section">
+              <div className="sectionTitle">Notes</div>
+              <div style={{ opacity: 0.85, whiteSpace: "pre-wrap" }}>
+                {walk.notes}
+              </div>
+            </div>
+          ) : null}
+
+          {/* Media */}
+          {walk.media.length > 0 ? (
+            <div className="section">
+              <div className="sectionTitle">Photos</div>
+              <div className="mediaGrid">
+                {walk.media.map((m, i) => (
+                  <div key={i} className="mediaItem">
+                    {m.type === "video" ? (
+                      <video src={m.url} controls />
+                    ) : (
+                      <img src={m.url} alt="" />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {/* Preview modal */}
+          {previewUrl && (
+            <div
+              onClick={() => setPreviewUrl(null)}
+              style={{
+                position: "fixed",
+                inset: 0,
+                background: "rgba(0,0,0,0.85)",
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                zIndex: 50,
+                padding: 16,
+              }}
+            >
+              <img
+                src={previewUrl}
+                alt="Walk recap preview"
+                style={{
+                  maxWidth: "100%",
+                  maxHeight: "100%",
+                  borderRadius: 16,
+                }}
+              />
+            </div>
+          )}
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }
+
+const wrap: React.CSSProperties = {
+  minHeight: "100vh",
+  background: "#0b0b0c",
+  color: "white",
+  padding: 16,
+};
