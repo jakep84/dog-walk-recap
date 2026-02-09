@@ -202,7 +202,7 @@ export async function generateWalkRecapPng(params: {
   const gridH = collageH - 110;
 
   // 2x2 grid (up to 4 images)
-  const cols = 2;
+  const cols = 3;
   const rows = 2;
   const gap = 18;
   const cellW = Math.floor((gridW - gap) / cols);
@@ -210,7 +210,7 @@ export async function generateWalkRecapPng(params: {
 
   // ✅ Important: proxy Firebase Storage URLs so fetch() isn't blocked by CORS
   const urls = (params.photoUrls || [])
-    .slice(0, 4)
+    .slice(0, 6)
     .map((u) => maybeProxyUrl(u));
 
   if (urls.length === 0) {
