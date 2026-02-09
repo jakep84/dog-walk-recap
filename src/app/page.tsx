@@ -141,13 +141,13 @@ export default function Page() {
         weather:
           finalTemp !== null
             ? { temperatureF: finalTemp, summary: finalSummary }
-            : finalSummary
-              ? { temperatureF: 0, summary: finalSummary } // temp omitted on card if you later tweak generator; safe fallback
-              : null,
+            : null,
         notes,
         createdAtLabel,
         routePoints,
         photoUrls,
+        amountDue,
+        walkId,
       });
 
       const recapFile = new File([recapBlob], `walk-recap-${walkId}.png`, {

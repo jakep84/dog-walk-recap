@@ -13,18 +13,16 @@ function safeText(
 }
 
 /**
- * If a URL is a Firebase Storage download URL, fetch it through our same-origin proxy
- * to avoid browser CORS blocking canvas/image composition.
+ * Proxy Firebase Storage URLs through our own domain to avoid browser CORS
+ * when fetching into canvas.
  */
 function maybeProxyUrl(url: string): string {
   if (!url) return url;
 
-  // Only proxy Firebase Storage download URLs
   if (url.startsWith("https://firebasestorage.googleapis.com/")) {
     return `/api/media-proxy?url=${encodeURIComponent(url)}`;
   }
 
-  // (Optional) also proxy storage.googleapis.com if you ever use that URL style
   if (url.startsWith("https://storage.googleapis.com/")) {
     return `/api/media-proxy?url=${encodeURIComponent(url)}`;
   }
@@ -40,21 +38,24 @@ export function buildStaticMapUrl(params: {
 }): string | null {
   const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
   if (!token) return null;
+
   const { points, width, height } = params;
   if (!points || points.length < 2) return null;
 
-  // IMPORTANT: Mapbox expects [lng,lat]
   const coords = points.map((p) => [p.lng, p.lat]);
 
   const feature = {
     type: "Feature",
-    properties: { stroke: "#111111", "stroke-width": 5, "stroke-opacity": 0.9 },
+    properties: {
+      stroke: "#111111",
+      "stroke-width": 5,
+      "stroke-opacity": 0.9,
+    },
     geometry: { type: "LineString", coordinates: coords },
   };
 
   const overlay = `geojson(${encodeURIComponent(JSON.stringify(feature))})`;
 
-  // "auto" makes Mapbox fit the overlay automatically
   const url =
     `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/` +
     `${overlay}/auto/${width}x${height}` +
@@ -70,6 +71,11 @@ async function fetchImageBitmap(url: string): Promise<ImageBitmap> {
   return await createImageBitmap(blob);
 }
 
+function formatMoney(n: number | null | undefined): string {
+  if (typeof n !== "number" || !isFinite(n)) return "—";
+  return `$${n.toFixed(2)}`;
+}
+
 export async function generateWalkRecapPng(params: {
   dogs: string;
   durationMinutes: number;
@@ -79,6 +85,8 @@ export async function generateWalkRecapPng(params: {
   createdAtLabel?: string;
   routePoints: LatLng[];
   photoUrls: string[]; // only images for now
+  amountDue?: number | null; // ✅ NEW (optional): show on the recap
+  walkId?: string; // ✅ NEW (optional): tiny footer id
 }): Promise<Blob> {
   const W = 1080;
   const H = 1920;
@@ -93,42 +101,65 @@ export async function generateWalkRecapPng(params: {
   ctx.fillStyle = "#0b0b0c";
   ctx.fillRect(0, 0, W, H);
 
-  // Layout
+  // Layout constants
   const pad = 48;
-  const headerH = 170;
-  const mapH = 620;
-  const statsH = 280;
-  const collageH = 700;
+  const cardRadius = 28;
 
-  // Header
+  // Header spacing tuned to avoid map collision
+  const headerTop = 56;
+  const headerTitleY = headerTop + 52;
+  const headerSubY = headerTitleY + 52;
+  const headerMetaY = headerSubY + 42;
+
+  // Sections
+  const mapY = 230; // ✅ give breathing room after header
+  const mapH = 610;
+
+  const statsY = mapY + mapH + 24;
+  const statsH = 210; // stats only (numbers)
+
+  const notesY = statsY + statsH + 18;
+  const notesH = 165;
+
+  const photosY = notesY + notesH + 22;
+  const photosH = H - photosY - 56; // leave bottom padding
+
+  // ===== Header =====
   ctx.fillStyle = "#ffffff";
-  ctx.font = "900 64px Arial";
-  safeText(ctx, "Walk Recap", pad, 95);
 
-  ctx.font = "700 40px Arial";
-  safeText(ctx, params.dogs || "Dogs", pad, 150);
+  // Make dogs the hero; keep "Walk Recap" smaller
+  ctx.font = "800 46px Arial";
+  safeText(ctx, "Walk Recap", pad, headerTitleY);
 
-  ctx.font = "500 28px Arial";
+  ctx.font = "900 54px Arial";
+  safeText(ctx, params.dogs || "Dogs", pad, headerSubY);
+
+  ctx.font = "600 28px Arial";
   ctx.fillStyle = "rgba(255,255,255,0.75)";
-  safeText(ctx, params.createdAtLabel || new Date().toLocaleString(), pad, 195);
+  safeText(
+    ctx,
+    params.createdAtLabel || new Date().toLocaleString(),
+    pad,
+    headerMetaY,
+  );
 
-  // Map
-  const mapY = headerH + 10;
+  // ===== Map card =====
+  const mapW = W - pad * 2;
+
+  // Card background
+  ctx.fillStyle = "rgba(255,255,255,0.06)";
+  roundRect(ctx, pad, mapY, mapW, mapH, cardRadius);
+  ctx.fill();
+
   const mapUrl = buildStaticMapUrl({
     points: params.routePoints,
     width: 1080,
     height: mapH,
   });
 
-  // Map container
-  ctx.fillStyle = "rgba(255,255,255,0.06)";
-  roundRect(ctx, 0 + pad, mapY, W - pad * 2, mapH, 28);
-  ctx.fill();
-
   if (mapUrl) {
     const mapImg = await fetchImageBitmap(mapUrl);
-    // draw inside rounded rect
-    drawRoundedImage(ctx, mapImg, pad, mapY, W - pad * 2, mapH, 28);
+    drawRoundedImage(ctx, mapImg, pad, mapY, mapW, mapH, cardRadius);
   } else {
     ctx.fillStyle = "rgba(255,255,255,0.75)";
     ctx.font = "700 32px Arial";
@@ -140,93 +171,139 @@ export async function generateWalkRecapPng(params: {
     );
   }
 
-  // Stats block
-  const statsY = mapY + mapH + 28;
+  // ===== Stats row card (4 columns) =====
   ctx.fillStyle = "rgba(255,255,255,0.06)";
-  roundRect(ctx, pad, statsY, W - pad * 2, statsH, 28);
+  roundRect(ctx, pad, statsY, mapW, statsH, cardRadius);
   ctx.fill();
 
-  const leftX = pad + 28;
-  const row1Y = statsY + 70;
-  const row2Y = statsY + 150;
+  // 4 columns
+  const cols = 4;
+  const innerPad = 28;
+  const colW = (mapW - innerPad * 2) / cols;
 
-  ctx.fillStyle = "rgba(255,255,255,0.7)";
-  ctx.font = "700 26px Arial";
-  safeText(ctx, "Duration", leftX, row1Y);
-  safeText(ctx, "Distance", leftX + 360, row1Y);
-  safeText(ctx, "Weather", leftX + 720, row1Y);
+  const statLabelY = statsY + 62;
+  const statValueY = statsY + 120;
 
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "900 44px Arial";
-  safeText(ctx, `${params.durationMinutes} min`, leftX, row1Y + 55);
-  safeText(
-    ctx,
-    `${params.distanceMiles.toFixed(2)} mi`,
-    leftX + 360,
-    row1Y + 55,
-  );
+  function drawStat(
+    colIdx: number,
+    label: string,
+    value: string,
+    subValue?: string,
+  ) {
+    const x = pad + innerPad + colIdx * colW;
 
+    ctx.fillStyle = "rgba(255,255,255,0.7)";
+    ctx.font = "800 24px Arial";
+    safeText(ctx, label, x, statLabelY);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "900 44px Arial";
+    safeText(ctx, value, x, statValueY);
+
+    if (subValue) {
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.font = "700 28px Arial";
+      safeText(ctx, subValue, x, statValueY + 40);
+    }
+  }
+
+  drawStat(0, "Duration", `${params.durationMinutes} min`);
+  drawStat(1, "Distance", `${params.distanceMiles.toFixed(2)} mi`);
+
+  // ✅ Weather is split onto two lines now (no crowding)
   const temp = params.weather?.temperatureF;
-  const summary = params.weather?.summary || "";
-  safeText(
-    ctx,
-    `${temp != null ? `${temp}°F` : "—"}  ${summary}`,
-    leftX + 720,
-    row1Y + 55,
-  );
+  const summary = (params.weather?.summary || "").trim();
 
-  // Notes
+  drawStat(2, "Weather", temp != null ? `${temp}°F` : "—", summary || "—");
+
+  // ✅ Amount Due
+  drawStat(3, "Due", formatMoney(params.amountDue ?? null));
+
+  // ===== Notes card =====
+  ctx.fillStyle = "rgba(255,255,255,0.06)";
+  roundRect(ctx, pad, notesY, mapW, notesH, cardRadius);
+  ctx.fill();
+
   ctx.fillStyle = "rgba(255,255,255,0.7)";
-  ctx.font = "700 26px Arial";
-  safeText(ctx, "Notes", leftX, row2Y + 15);
+  ctx.font = "800 26px Arial";
+  safeText(ctx, "Notes", pad + innerPad, notesY + 58);
 
   ctx.fillStyle = "#ffffff";
   ctx.font = "500 30px Arial";
   const notesText = (params.notes || "").trim();
-  wrapText(ctx, notesText || "—", leftX, row2Y + 65, W - pad * 2 - 56, 38, 3);
+  wrapText(
+    ctx,
+    notesText || "—",
+    pad + innerPad,
+    notesY + 105,
+    mapW - innerPad * 2,
+    38,
+    3,
+  );
 
-  // Collage
-  const collageY = statsY + statsH + 28;
+  // ===== Photos card (3x2 grid, max 6, placeholders) =====
   ctx.fillStyle = "rgba(255,255,255,0.06)";
-  roundRect(ctx, pad, collageY, W - pad * 2, collageH, 28);
+  roundRect(ctx, pad, photosY, mapW, photosH, cardRadius);
   ctx.fill();
 
   ctx.fillStyle = "rgba(255,255,255,0.7)";
-  ctx.font = "700 26px Arial";
-  safeText(ctx, "Photos", pad + 28, collageY + 52);
+  ctx.font = "800 26px Arial";
+  safeText(ctx, "Photos", pad + innerPad, photosY + 56);
 
   const gridPad = 24;
   const gridX = pad + gridPad;
-  const gridY = collageY + 80;
-  const gridW = W - pad * 2 - gridPad * 2;
-  const gridH = collageH - 110;
+  const gridY = photosY + 86;
+  const gridW = mapW - gridPad * 2;
+  const gridH = photosH - 110;
 
-  // 2x2 grid (up to 4 images)
-  const cols = 3;
-  const rows = 2;
-  const gap = 18;
-  const cellW = Math.floor((gridW - gap) / cols);
-  const cellH = Math.floor((gridH - gap) / rows);
+  const photoCols = 3;
+  const photoRows = 2;
+  const gap = 16;
 
-  // ✅ Important: proxy Firebase Storage URLs so fetch() isn't blocked by CORS
-  const urls = (params.photoUrls || [])
-    .slice(0, 6)
-    .map((u) => maybeProxyUrl(u));
+  const cellW = Math.floor((gridW - gap * (photoCols - 1)) / photoCols);
+  const cellH = Math.floor((gridH - gap * (photoRows - 1)) / photoRows);
 
-  if (urls.length === 0) {
-    ctx.fillStyle = "rgba(255,255,255,0.75)";
-    ctx.font = "700 32px Arial";
-    safeText(ctx, "No photos uploaded", gridX, gridY + 80);
-  } else {
-    for (let i = 0; i < urls.length; i++) {
-      const r = Math.floor(i / cols);
-      const c = i % cols;
-      const x = gridX + c * (cellW + gap);
-      const y = gridY + r * (cellH + gap);
+  const rawUrls = (params.photoUrls || []).slice(0, photoCols * photoRows);
+  const urls = rawUrls.map((u) => maybeProxyUrl(u));
 
-      const img = await fetchImageBitmap(urls[i]);
-      drawRoundedImage(ctx, img, x, y, cellW, cellH, 22);
+  // Always draw 6 slots; fill missing with placeholders
+  const maxSlots = photoCols * photoRows;
+  for (let i = 0; i < maxSlots; i++) {
+    const r = Math.floor(i / photoCols);
+    const c = i % photoCols;
+    const x = gridX + c * (cellW + gap);
+    const y = gridY + r * (cellH + gap);
+
+    const slotRadius = 22;
+
+    if (i < urls.length && urls[i]) {
+      try {
+        const img = await fetchImageBitmap(urls[i]);
+        drawRoundedImage(ctx, img, x, y, cellW, cellH, slotRadius);
+      } catch {
+        // If an image fails, draw a placeholder instead of crashing.
+        drawPlaceholderTile(
+          ctx,
+          x,
+          y,
+          cellW,
+          cellH,
+          slotRadius,
+          "Image failed",
+        );
+      }
+    } else {
+      drawPlaceholderTile(ctx, x, y, cellW, cellH, slotRadius, "");
     }
+  }
+
+  // ===== Footer tiny ID =====
+  if (params.walkId) {
+    ctx.fillStyle = "rgba(255,255,255,0.35)";
+    ctx.font = "600 20px Arial";
+    const txt = `ID: ${params.walkId}`;
+    const w = ctx.measureText(txt).width;
+    safeText(ctx, txt, W - pad - w, H - 26);
   }
 
   // Export
@@ -279,18 +356,46 @@ function drawRoundedImage(
   let dy = y;
 
   if (imgRatio > boxRatio) {
-    // image is wider
     drawH = h;
     drawW = h * imgRatio;
     dx = x - (drawW - w) / 2;
   } else {
-    // image is taller
     drawW = w;
     drawH = w / imgRatio;
     dy = y - (drawH - h) / 2;
   }
 
   ctx.drawImage(img, dx, dy, drawW, drawH);
+  ctx.restore();
+}
+
+function drawPlaceholderTile(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+  label: string,
+) {
+  ctx.save();
+  roundRect(ctx, x, y, w, h, r);
+  ctx.clip();
+
+  ctx.fillStyle = "rgba(255,255,255,0.05)";
+  ctx.fillRect(x, y, w, h);
+
+  ctx.strokeStyle = "rgba(255,255,255,0.12)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+
+  if (label) {
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.font = "700 22px Arial";
+    const tw = ctx.measureText(label).width;
+    safeText(ctx, label, x + (w - tw) / 2, y + h / 2);
+  }
+
   ctx.restore();
 }
 
