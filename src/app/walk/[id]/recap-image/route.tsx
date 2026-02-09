@@ -1,5 +1,5 @@
 import { ImageResponse } from "next/og";
-import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 
 export const runtime = "edge";
 
@@ -40,9 +40,10 @@ function buildStaticMapUrl(params: {
 async function fetchWalk(id: string) {
   const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
   const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+
   if (!projectId || !apiKey) {
     throw new Error(
-      "Missing NEXT_PUBLIC_FIREBASE_PROJECT_ID / API_KEY env vars.",
+      "Missing NEXT_PUBLIC_FIREBASE_PROJECT_ID / NEXT_PUBLIC_FIREBASE_API_KEY env vars.",
     );
   }
 
@@ -54,8 +55,7 @@ async function fetchWalk(id: string) {
   const txt = await r.text();
 
   if (!r.ok) {
-    // This is where PERMISSION_DENIED will show up
-    throw new Error(`Firestore HTTP ${r.status}: ${txt.slice(0, 500)}`);
+    throw new Error(`Firestore HTTP ${r.status}: ${txt.slice(0, 700)}`);
   }
 
   const json = JSON.parse(txt);
@@ -86,10 +86,14 @@ async function fetchWalk(id: string) {
   const routePoints: LatLng[] =
     f.routePoints?.arrayValue?.values?.map((v: any) => ({
       lat: Number(
-        v.mapValue.fields.lat.doubleValue ?? v.mapValue.fields.lat.integerValue,
+        v.mapValue.fields.lat.doubleValue ??
+          v.mapValue.fields.lat.integerValue ??
+          0,
       ),
       lng: Number(
-        v.mapValue.fields.lng.doubleValue ?? v.mapValue.fields.lng.integerValue,
+        v.mapValue.fields.lng.doubleValue ??
+          v.mapValue.fields.lng.integerValue ??
+          0,
       ),
     })) || [];
 
@@ -121,6 +125,7 @@ async function fetchWalk(id: string) {
 function errorImage(message: string) {
   const W = 1080;
   const H = 600;
+
   return new ImageResponse(
     <div
       style={{
@@ -138,7 +143,7 @@ function errorImage(message: string) {
     >
       <div style={{ fontSize: 44, fontWeight: 900 }}>Recap Image Error</div>
       <div style={{ fontSize: 24, opacity: 0.8 }}>
-        Your recap-image route returned a non-image response.
+        recap-image returned a non-image response.
       </div>
       <div
         style={{
@@ -151,7 +156,7 @@ function errorImage(message: string) {
         {message}
       </div>
       <div style={{ fontSize: 18, opacity: 0.7 }}>
-        Most common cause: Firestore rules deny unauthenticated read.
+        Common cause: Firestore rules deny unauthenticated read.
       </div>
     </div>,
     { width: W, height: H, headers: { "Cache-Control": "no-store" } },
@@ -159,11 +164,11 @@ function errorImage(message: string) {
 }
 
 export async function GET(
-  _req: Request,
-  { params }: { params: { id: string } },
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { id } = params;
+    const { id } = await params;
 
     const walk = await fetchWalk(id);
 
@@ -338,7 +343,7 @@ export async function GET(
           </div>
         </div>
 
-        {/* Photos */}
+        {/* Photos (6 slots) */}
         <div
           style={{
             marginTop: `${gap}px`,
@@ -401,12 +406,20 @@ export async function GET(
             })}
           </div>
         </div>
+
+        <div
+          style={{
+            marginTop: 10,
+            fontSize: 20,
+            opacity: 0.5,
+            display: "flex",
+            justifyContent: "flex-end",
+          }}
+        >
+          ID: {walk.id}
+        </div>
       </div>,
-      {
-        width: W,
-        height: H,
-        headers: { "Cache-Control": "no-store" },
-      },
+      { width: W, height: H, headers: { "Cache-Control": "no-store" } },
     );
   } catch (e: any) {
     return errorImage(e?.message || String(e));
