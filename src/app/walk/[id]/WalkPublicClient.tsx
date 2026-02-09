@@ -38,6 +38,16 @@ export default function WalkPublicClient({ walkId }: { walkId: string }) {
   const [previewBusy, setPreviewBusy] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
+  // Lock background scroll when modal is open
+  useEffect(() => {
+    if (!previewUrl) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [previewUrl]);
+
   useEffect(() => {
     if (!walkId) return;
     let alive = true;
@@ -97,7 +107,6 @@ export default function WalkPublicClient({ walkId }: { walkId: string }) {
     setPreviewBusy(true);
 
     try {
-      // ✅ correct route: /walk/[id]/recap-image
       const r = await fetch(`/walk/${walkId}/recap-image`, {
         cache: "no-store",
       });
@@ -109,7 +118,6 @@ export default function WalkPublicClient({ walkId }: { walkId: string }) {
 
       const blob = await r.blob();
 
-      // Replace any existing object URL
       setPreviewUrl((old) => {
         if (old) URL.revokeObjectURL(old);
         return URL.createObjectURL(blob);
@@ -233,35 +241,40 @@ export default function WalkPublicClient({ walkId }: { walkId: string }) {
               </div>
             </div>
           ) : null}
+        </div>
+      </div>
 
-          {/* Preview modal */}
-          {isAdmin && previewUrl ? (
-            <div
-              onClick={closePreview}
-              style={{
-                position: "fixed",
-                inset: 0,
-                background: "rgba(0,0,0,0.85)",
-                display: "flex",
-                justifyContent: "center",
-                alignItems: "center",
-                zIndex: 50,
-                padding: 16,
-              }}
-            >
+      {/* ✅ Preview Modal (fixed, scrollable, mobile safe) */}
+      {isAdmin && previewUrl ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={closePreview}
+          style={modalOverlay}
+        >
+          <div onClick={(e) => e.stopPropagation()} style={modalSheet}>
+            <div style={modalHeader}>
+              <div style={{ fontWeight: 900 }}>Walk Recap Preview</div>
+              <button className="copyBtn" onClick={closePreview}>
+                Close
+              </button>
+            </div>
+
+            <div style={modalBody}>
               <img
                 src={previewUrl}
                 alt="Walk recap preview"
                 style={{
-                  maxWidth: "100%",
-                  maxHeight: "100%",
-                  borderRadius: 16,
+                  width: "100%",
+                  height: "auto",
+                  borderRadius: 12,
+                  display: "block",
                 }}
               />
             </div>
-          ) : null}
+          </div>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }
@@ -271,4 +284,41 @@ const wrap: React.CSSProperties = {
   background: "#0b0b0c",
   color: "white",
   padding: 16,
+};
+
+const modalOverlay: React.CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(0,0,0,0.75)",
+  zIndex: 9999,
+  display: "grid",
+  placeItems: "center",
+  padding: 14,
+};
+
+const modalSheet: React.CSSProperties = {
+  width: "min(560px, 100%)",
+  maxHeight: "92vh",
+  borderRadius: 16,
+  overflow: "hidden",
+  background: "#111",
+  border: "1px solid rgba(255,255,255,0.12)",
+  boxShadow: "0 30px 80px rgba(0,0,0,0.6)",
+  display: "flex",
+  flexDirection: "column",
+};
+
+const modalHeader: React.CSSProperties = {
+  padding: 10,
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 10,
+  alignItems: "center",
+  borderBottom: "1px solid rgba(255,255,255,0.10)",
+};
+
+const modalBody: React.CSSProperties = {
+  padding: 10,
+  overflow: "auto",
+  WebkitOverflowScrolling: "touch",
 };
