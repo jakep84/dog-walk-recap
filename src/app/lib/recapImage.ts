@@ -12,6 +12,26 @@ function safeText(
   ctx.fillText(text ?? "", x, y);
 }
 
+/**
+ * If a URL is a Firebase Storage download URL, fetch it through our same-origin proxy
+ * to avoid browser CORS blocking canvas/image composition.
+ */
+function maybeProxyUrl(url: string): string {
+  if (!url) return url;
+
+  // Only proxy Firebase Storage download URLs
+  if (url.startsWith("https://firebasestorage.googleapis.com/")) {
+    return `/api/media-proxy?url=${encodeURIComponent(url)}`;
+  }
+
+  // (Optional) also proxy storage.googleapis.com if you ever use that URL style
+  if (url.startsWith("https://storage.googleapis.com/")) {
+    return `/api/media-proxy?url=${encodeURIComponent(url)}`;
+  }
+
+  return url;
+}
+
 // Create a Mapbox Static image URL with a GeoJSON line overlay and auto-fit.
 export function buildStaticMapUrl(params: {
   points: LatLng[];
@@ -129,7 +149,6 @@ export async function generateWalkRecapPng(params: {
   const leftX = pad + 28;
   const row1Y = statsY + 70;
   const row2Y = statsY + 150;
-  const row3Y = statsY + 230;
 
   ctx.fillStyle = "rgba(255,255,255,0.7)";
   ctx.font = "700 26px Arial";
@@ -189,7 +208,10 @@ export async function generateWalkRecapPng(params: {
   const cellW = Math.floor((gridW - gap) / cols);
   const cellH = Math.floor((gridH - gap) / rows);
 
-  const urls = (params.photoUrls || []).slice(0, 4);
+  // ✅ Important: proxy Firebase Storage URLs so fetch() isn't blocked by CORS
+  const urls = (params.photoUrls || [])
+    .slice(0, 4)
+    .map((u) => maybeProxyUrl(u));
 
   if (urls.length === 0) {
     ctx.fillStyle = "rgba(255,255,255,0.75)";
