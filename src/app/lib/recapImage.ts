@@ -19,11 +19,10 @@ function safeText(
 function maybeProxyUrl(url: string): string {
   if (!url) return url;
 
-  if (url.startsWith("https://firebasestorage.googleapis.com/")) {
-    return `/api/media-proxy?url=${encodeURIComponent(url)}`;
-  }
-
-  if (url.startsWith("https://storage.googleapis.com/")) {
+  if (
+    url.startsWith("https://firebasestorage.googleapis.com/") ||
+    url.startsWith("https://storage.googleapis.com/")
+  ) {
     return `/api/media-proxy?url=${encodeURIComponent(url)}`;
   }
 
@@ -56,12 +55,11 @@ export function buildStaticMapUrl(params: {
 
   const overlay = `geojson(${encodeURIComponent(JSON.stringify(feature))})`;
 
-  const url =
+  return (
     `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/` +
     `${overlay}/auto/${width}x${height}` +
-    `?padding=60&access_token=${encodeURIComponent(token)}`;
-
-  return url;
+    `?padding=60&access_token=${encodeURIComponent(token)}`
+  );
 }
 
 async function fetchImageBitmap(url: string): Promise<ImageBitmap> {
@@ -69,11 +67,6 @@ async function fetchImageBitmap(url: string): Promise<ImageBitmap> {
   if (!r.ok) throw new Error(`Failed to fetch image: ${r.status}`);
   const blob = await r.blob();
   return await createImageBitmap(blob);
-}
-
-function formatMoney(n: number | null | undefined): string {
-  if (typeof n !== "number" || !isFinite(n)) return "—";
-  return `$${n.toFixed(2)}`;
 }
 
 export async function generateWalkRecapPng(params: {
@@ -84,9 +77,8 @@ export async function generateWalkRecapPng(params: {
   notes: string;
   createdAtLabel?: string;
   routePoints: LatLng[];
-  photoUrls: string[]; // only images for now
-  amountDue?: number | null; // show on the recap
-  walkId?: string; // tiny footer id
+  photoUrls: string[];
+  walkId?: string; // optional tiny footer id (safe)
 }): Promise<Blob> {
   const W = 1080;
   const H = 1920;
@@ -95,7 +87,6 @@ export async function generateWalkRecapPng(params: {
   canvas.width = W;
   canvas.height = H;
 
-  // ✅ Non-null assertion so TS doesn't complain inside nested functions
   const ctx = canvas.getContext("2d")!;
   if (!ctx) throw new Error("Canvas not supported");
 
@@ -103,52 +94,28 @@ export async function generateWalkRecapPng(params: {
   ctx.fillStyle = "#0b0b0c";
   ctx.fillRect(0, 0, W, H);
 
-  // Layout constants
   const pad = 48;
-  const cardRadius = 28;
-
-  // Header spacing tuned to avoid map collision
-  const headerTop = 56;
-  const headerTitleY = headerTop + 52;
-  const headerSubY = headerTitleY + 52;
-  const headerMetaY = headerSubY + 42;
-
-  // Sections
-  const mapY = 230;
-  const mapH = 610;
-
-  const statsY = mapY + mapH + 24;
-  const statsH = 210;
-
-  const notesY = statsY + statsH + 18;
-  const notesH = 165;
-
-  const photosY = notesY + notesH + 22;
-  const photosH = H - photosY - 56;
+  const radius = 28;
 
   // ===== Header =====
   ctx.fillStyle = "#ffffff";
-
   ctx.font = "800 46px Arial";
-  safeText(ctx, "Walk Recap", pad, headerTitleY);
+  safeText(ctx, "Walk Recap", pad, 108);
 
   ctx.font = "900 54px Arial";
-  safeText(ctx, params.dogs || "Dogs", pad, headerSubY);
+  safeText(ctx, params.dogs || "Dogs", pad, 162);
 
   ctx.font = "600 28px Arial";
   ctx.fillStyle = "rgba(255,255,255,0.75)";
-  safeText(
-    ctx,
-    params.createdAtLabel || new Date().toLocaleString(),
-    pad,
-    headerMetaY,
-  );
+  safeText(ctx, params.createdAtLabel || new Date().toLocaleString(), pad, 204);
 
-  // ===== Map card =====
+  // ===== Map =====
+  const mapY = 230;
+  const mapH = 610;
   const mapW = W - pad * 2;
 
   ctx.fillStyle = "rgba(255,255,255,0.06)";
-  roundRect(ctx, pad, mapY, mapW, mapH, cardRadius);
+  roundRect(ctx, pad, mapY, mapW, mapH, radius);
   ctx.fill();
 
   const mapUrl = buildStaticMapUrl({
@@ -159,92 +126,80 @@ export async function generateWalkRecapPng(params: {
 
   if (mapUrl) {
     const mapImg = await fetchImageBitmap(mapUrl);
-    drawRoundedImage(ctx, mapImg, pad, mapY, mapW, mapH, cardRadius);
-  } else {
-    ctx.fillStyle = "rgba(255,255,255,0.75)";
-    ctx.font = "700 32px Arial";
-    safeText(
-      ctx,
-      "Map unavailable (missing token or route)",
-      pad + 24,
-      mapY + 80,
-    );
+    drawRoundedImage(ctx, mapImg, pad, mapY, mapW, mapH, radius);
   }
 
-  // ===== Stats row card (4 columns) =====
+  // ===== Stats (3 columns) =====
+  const statsY = mapY + mapH + 24;
+  const statsH = 210;
+
   ctx.fillStyle = "rgba(255,255,255,0.06)";
-  roundRect(ctx, pad, statsY, mapW, statsH, cardRadius);
+  roundRect(ctx, pad, statsY, mapW, statsH, radius);
   ctx.fill();
 
-  const cols = 4;
-  const innerPad = 28;
-  const colW = (mapW - innerPad * 2) / cols;
+  const cols = 3;
+  const inner = 28;
+  const colW = (mapW - inner * 2) / cols;
 
-  const statLabelY = statsY + 62;
-  const statValueY = statsY + 120;
-
-  function drawStat(
-    colIdx: number,
-    label: string,
-    value: string,
-    subValue?: string,
-  ) {
-    const x = pad + innerPad + colIdx * colW;
+  function stat(col: number, label: string, value: string, sub?: string) {
+    const x = pad + inner + col * colW;
 
     ctx.fillStyle = "rgba(255,255,255,0.7)";
     ctx.font = "800 24px Arial";
-    safeText(ctx, label, x, statLabelY);
+    safeText(ctx, label, x, statsY + 62);
 
     ctx.fillStyle = "#ffffff";
     ctx.font = "900 44px Arial";
-    safeText(ctx, value, x, statValueY);
+    safeText(ctx, value, x, statsY + 120);
 
-    if (subValue) {
-      ctx.fillStyle = "rgba(255,255,255,0.85)";
+    if (sub) {
       ctx.font = "700 28px Arial";
-      safeText(ctx, subValue, x, statValueY + 40);
+      safeText(ctx, sub, x, statsY + 160);
     }
   }
 
-  drawStat(0, "Duration", `${params.durationMinutes} min`);
-  drawStat(1, "Distance", `${params.distanceMiles.toFixed(2)} mi`);
+  stat(0, "Duration", `${params.durationMinutes} min`);
+  stat(1, "Distance", `${params.distanceMiles.toFixed(2)} mi`);
 
   const temp = params.weather?.temperatureF;
-  const summary = (params.weather?.summary || "").trim();
-  drawStat(2, "Weather", temp != null ? `${temp}°F` : "—", summary || "—");
+  const summary = params.weather?.summary || "—";
+  stat(2, "Weather", temp != null ? `${temp}°F` : "—", summary);
 
-  drawStat(3, "Due", formatMoney(params.amountDue ?? null));
+  // ===== Notes =====
+  const notesY = statsY + statsH + 18;
+  const notesH = 165;
 
-  // ===== Notes card =====
   ctx.fillStyle = "rgba(255,255,255,0.06)";
-  roundRect(ctx, pad, notesY, mapW, notesH, cardRadius);
+  roundRect(ctx, pad, notesY, mapW, notesH, radius);
   ctx.fill();
 
   ctx.fillStyle = "rgba(255,255,255,0.7)";
   ctx.font = "800 26px Arial";
-  safeText(ctx, "Notes", pad + innerPad, notesY + 58);
+  safeText(ctx, "Notes", pad + inner, notesY + 58);
 
   ctx.fillStyle = "#ffffff";
   ctx.font = "500 30px Arial";
-  const notesText = (params.notes || "").trim();
   wrapText(
     ctx,
-    notesText || "—",
-    pad + innerPad,
+    (params.notes || "—").trim(),
+    pad + inner,
     notesY + 105,
-    mapW - innerPad * 2,
+    mapW - inner * 2,
     38,
     3,
   );
 
-  // ===== Photos card (3x2 grid, max 6, placeholders) =====
+  // ===== Photos (3x2 grid) =====
+  const photosY = notesY + notesH + 22;
+  const photosH = H - photosY - 56;
+
   ctx.fillStyle = "rgba(255,255,255,0.06)";
-  roundRect(ctx, pad, photosY, mapW, photosH, cardRadius);
+  roundRect(ctx, pad, photosY, mapW, photosH, radius);
   ctx.fill();
 
   ctx.fillStyle = "rgba(255,255,255,0.7)";
   ctx.font = "800 26px Arial";
-  safeText(ctx, "Photos", pad + innerPad, photosY + 56);
+  safeText(ctx, "Photos", pad + inner, photosY + 56);
 
   const gridPad = 24;
   const gridX = pad + gridPad;
@@ -259,39 +214,27 @@ export async function generateWalkRecapPng(params: {
   const cellW = Math.floor((gridW - gap * (photoCols - 1)) / photoCols);
   const cellH = Math.floor((gridH - gap * (photoRows - 1)) / photoRows);
 
-  const rawUrls = (params.photoUrls || []).slice(0, photoCols * photoRows);
-  const urls = rawUrls.map((u) => maybeProxyUrl(u));
+  const urls = params.photoUrls.slice(0, 6).map(maybeProxyUrl);
 
-  const maxSlots = photoCols * photoRows;
-  for (let i = 0; i < maxSlots; i++) {
+  for (let i = 0; i < 6; i++) {
     const r = Math.floor(i / photoCols);
     const c = i % photoCols;
     const x = gridX + c * (cellW + gap);
     const y = gridY + r * (cellH + gap);
 
-    const slotRadius = 22;
-
-    if (i < urls.length && urls[i]) {
+    if (urls[i]) {
       try {
         const img = await fetchImageBitmap(urls[i]);
-        drawRoundedImage(ctx, img, x, y, cellW, cellH, slotRadius);
+        drawRoundedImage(ctx, img, x, y, cellW, cellH, 22);
       } catch {
-        drawPlaceholderTile(
-          ctx,
-          x,
-          y,
-          cellW,
-          cellH,
-          slotRadius,
-          "Image failed",
-        );
+        drawPlaceholder(ctx, x, y, cellW, cellH);
       }
     } else {
-      drawPlaceholderTile(ctx, x, y, cellW, cellH, slotRadius, "");
+      drawPlaceholder(ctx, x, y, cellW, cellH);
     }
   }
 
-  // ===== Footer tiny ID =====
+  // ===== Footer ID (optional, subtle) =====
   if (params.walkId) {
     ctx.fillStyle = "rgba(255,255,255,0.35)";
     ctx.font = "600 20px Arial";
@@ -300,8 +243,7 @@ export async function generateWalkRecapPng(params: {
     safeText(ctx, txt, W - pad - tw, H - 26);
   }
 
-  // Export
-  return await new Promise<Blob>((resolve, reject) => {
+  return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
       (b) => (b ? resolve(b) : reject(new Error("PNG export failed"))),
       "image/png",
@@ -341,55 +283,36 @@ function drawRoundedImage(
   roundRect(ctx, x, y, w, h, r);
   ctx.clip();
 
-  const imgRatio = img.width / img.height;
-  const boxRatio = w / h;
-  let drawW = w;
-  let drawH = h;
+  const ir = img.width / img.height;
+  const br = w / h;
+  let dw = w;
+  let dh = h;
   let dx = x;
   let dy = y;
 
-  if (imgRatio > boxRatio) {
-    drawH = h;
-    drawW = h * imgRatio;
-    dx = x - (drawW - w) / 2;
+  if (ir > br) {
+    dh = h;
+    dw = h * ir;
+    dx -= (dw - w) / 2;
   } else {
-    drawW = w;
-    drawH = w / imgRatio;
-    dy = y - (drawH - h) / 2;
+    dw = w;
+    dh = w / ir;
+    dy -= (dh - h) / 2;
   }
 
-  ctx.drawImage(img, dx, dy, drawW, drawH);
+  ctx.drawImage(img, dx, dy, dw, dh);
   ctx.restore();
 }
 
-function drawPlaceholderTile(
+function drawPlaceholder(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
   w: number,
   h: number,
-  r: number,
-  label: string,
 ) {
-  ctx.save();
-  roundRect(ctx, x, y, w, h, r);
-  ctx.clip();
-
   ctx.fillStyle = "rgba(255,255,255,0.05)";
   ctx.fillRect(x, y, w, h);
-
-  ctx.strokeStyle = "rgba(255,255,255,0.12)";
-  ctx.lineWidth = 2;
-  ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
-
-  if (label) {
-    ctx.fillStyle = "rgba(255,255,255,0.55)";
-    ctx.font = "700 22px Arial";
-    const tw = ctx.measureText(label).width;
-    safeText(ctx, label, x + (w - tw) / 2, y + h / 2);
-  }
-
-  ctx.restore();
 }
 
 function wrapText(
@@ -405,14 +328,12 @@ function wrapText(
   let line = "";
   let lines = 0;
 
-  for (let i = 0; i < words.length; i++) {
-    const test = line ? `${line} ${words[i]}` : words[i];
-    const w = ctx.measureText(test).width;
-
-    if (w > maxWidth && line) {
+  for (const word of words) {
+    const test = line ? `${line} ${word}` : word;
+    if (ctx.measureText(test).width > maxWidth && line) {
       ctx.fillText(line, x, y + lines * lineHeight);
+      line = word;
       lines++;
-      line = words[i];
       if (lines >= maxLines) {
         ctx.fillText(line + "…", x, y + lines * lineHeight);
         return;
