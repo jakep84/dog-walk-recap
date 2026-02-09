@@ -13,23 +13,9 @@ function safeText(
 }
 
 /**
- * Proxy Firebase Storage URLs through our own domain to avoid browser CORS
- * when fetching into canvas.
+ * Create a Mapbox Static image URL with a GeoJSON line overlay and auto-fit.
+ * NOTE: Mapbox expects [lng,lat]
  */
-function maybeProxyUrl(url: string): string {
-  if (!url) return url;
-
-  if (
-    url.startsWith("https://firebasestorage.googleapis.com/") ||
-    url.startsWith("https://storage.googleapis.com/")
-  ) {
-    return `/api/media-proxy?url=${encodeURIComponent(url)}`;
-  }
-
-  return url;
-}
-
-// Create a Mapbox Static image URL with a GeoJSON line overlay and auto-fit.
 export function buildStaticMapUrl(params: {
   points: LatLng[];
   width: number;
@@ -46,15 +32,16 @@ export function buildStaticMapUrl(params: {
   const feature = {
     type: "Feature",
     properties: {
-      stroke: "#111111",
-      "stroke-width": 5,
-      "stroke-opacity": 0.9,
+      stroke: "#2b6fff",
+      "stroke-width": 6,
+      "stroke-opacity": 0.95,
     },
     geometry: { type: "LineString", coordinates: coords },
   };
 
   const overlay = `geojson(${encodeURIComponent(JSON.stringify(feature))})`;
 
+  // "auto" fits overlay automatically
   return (
     `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/` +
     `${overlay}/auto/${width}x${height}` +
@@ -77,8 +64,8 @@ export async function generateWalkRecapPng(params: {
   notes: string;
   createdAtLabel?: string;
   routePoints: LatLng[];
-  photoUrls: string[];
-  walkId?: string; // optional tiny footer id (safe)
+  photoUrls: string[]; // images only
+  walkId?: string;
 }): Promise<Blob> {
   const W = 1080;
   const H = 1920;
@@ -87,163 +74,184 @@ export async function generateWalkRecapPng(params: {
   canvas.width = W;
   canvas.height = H;
 
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas not supported");
 
   // Background
   ctx.fillStyle = "#0b0b0c";
   ctx.fillRect(0, 0, W, H);
 
+  // Layout
   const pad = 48;
-  const radius = 28;
 
-  // ===== Header =====
+  const headerH = 220;
+  const mapH = 520;
+  const statsH = 240;
+
+  const cardGap = 24;
+
+  // ---------- Header ----------
   ctx.fillStyle = "#ffffff";
-  ctx.font = "800 46px Arial";
-  safeText(ctx, "Walk Recap", pad, 108);
+  ctx.font = "900 74px Arial";
+  safeText(ctx, "Walk Recap", pad, 95);
 
-  ctx.font = "900 54px Arial";
-  safeText(ctx, params.dogs || "Dogs", pad, 162);
+  ctx.font = "800 44px Arial";
+  safeText(ctx, params.dogs || "Dogs", pad, 150);
 
+  ctx.fillStyle = "rgba(255,255,255,0.72)";
   ctx.font = "600 28px Arial";
-  ctx.fillStyle = "rgba(255,255,255,0.75)";
-  safeText(ctx, params.createdAtLabel || new Date().toLocaleString(), pad, 204);
+  safeText(ctx, params.createdAtLabel || new Date().toLocaleString(), pad, 198);
 
-  // ===== Map =====
-  const mapY = 230;
-  const mapH = 610;
+  // ---------- Map Card ----------
+  const mapY = headerH;
+  const mapX = pad;
   const mapW = W - pad * 2;
 
+  // Card background
   ctx.fillStyle = "rgba(255,255,255,0.06)";
-  roundRect(ctx, pad, mapY, mapW, mapH, radius);
+  roundRect(ctx, mapX, mapY, mapW, mapH, 28);
   ctx.fill();
 
+  // Map image inside card
   const mapUrl = buildStaticMapUrl({
     points: params.routePoints,
-    width: 1080,
-    height: mapH,
+    width: 900,
+    height: 520,
   });
 
   if (mapUrl) {
-    const mapImg = await fetchImageBitmap(mapUrl);
-    drawRoundedImage(ctx, mapImg, pad, mapY, mapW, mapH, radius);
+    try {
+      const mapImg = await fetchImageBitmap(mapUrl);
+      drawRoundedImage(ctx, mapImg, mapX, mapY, mapW, mapH, 28);
+    } catch {
+      ctx.fillStyle = "rgba(255,255,255,0.7)";
+      ctx.font = "800 30px Arial";
+      safeText(ctx, "Map failed to load", mapX + 24, mapY + 70);
+    }
+  } else {
+    ctx.fillStyle = "rgba(255,255,255,0.7)";
+    ctx.font = "800 30px Arial";
+    safeText(ctx, "Map unavailable", mapX + 24, mapY + 70);
   }
 
-  // ===== Stats (3 columns) =====
-  const statsY = mapY + mapH + 24;
-  const statsH = 210;
-
+  // ---------- Stats Card ----------
+  const statsY = mapY + mapH + cardGap;
   ctx.fillStyle = "rgba(255,255,255,0.06)";
-  roundRect(ctx, pad, statsY, mapW, statsH, radius);
+  roundRect(ctx, pad, statsY, W - pad * 2, statsH, 28);
   ctx.fill();
 
-  const cols = 3;
-  const inner = 28;
-  const colW = (mapW - inner * 2) / cols;
+  // 3 columns
+  const innerPad = 28;
+  const colW = (W - pad * 2 - innerPad * 2) / 3;
 
-  function stat(col: number, label: string, value: string, sub?: string) {
-    const x = pad + inner + col * colW;
+  const statLabelY = statsY + 62;
+  const statValueY = statsY + 118;
+
+  const labels = ["Duration", "Distance", "Weather"];
+  const values = [
+    `${params.durationMinutes} min`,
+    `${params.distanceMiles.toFixed(2)} mi`,
+    `${params.weather?.temperatureF != null ? `${params.weather.temperatureF}°F` : "—"} ${
+      params.weather?.summary || ""
+    }`.trim(),
+  ];
+
+  for (let i = 0; i < 3; i++) {
+    const x = pad + innerPad + i * colW;
 
     ctx.fillStyle = "rgba(255,255,255,0.7)";
     ctx.font = "800 24px Arial";
-    safeText(ctx, label, x, statsY + 62);
+    safeText(ctx, labels[i], x, statLabelY);
 
     ctx.fillStyle = "#ffffff";
     ctx.font = "900 44px Arial";
-    safeText(ctx, value, x, statsY + 120);
-
-    if (sub) {
-      ctx.font = "700 28px Arial";
-      safeText(ctx, sub, x, statsY + 160);
-    }
+    safeText(ctx, values[i], x, statValueY);
   }
 
-  stat(0, "Duration", `${params.durationMinutes} min`);
-  stat(1, "Distance", `${params.distanceMiles.toFixed(2)} mi`);
-
-  const temp = params.weather?.temperatureF;
-  const summary = params.weather?.summary || "—";
-  stat(2, "Weather", temp != null ? `${temp}°F` : "—", summary);
-
-  // ===== Notes =====
-  const notesY = statsY + statsH + 18;
-  const notesH = 165;
-
-  ctx.fillStyle = "rgba(255,255,255,0.06)";
-  roundRect(ctx, pad, notesY, mapW, notesH, radius);
-  ctx.fill();
-
+  // Notes section (small)
   ctx.fillStyle = "rgba(255,255,255,0.7)";
-  ctx.font = "800 26px Arial";
-  safeText(ctx, "Notes", pad + inner, notesY + 58);
+  ctx.font = "800 24px Arial";
+  safeText(ctx, "Notes", pad + innerPad, statsY + 168);
 
   ctx.fillStyle = "#ffffff";
-  ctx.font = "500 30px Arial";
+  ctx.font = "500 28px Arial";
+  const notesText = (params.notes || "").trim() || "—";
   wrapText(
     ctx,
-    (params.notes || "—").trim(),
-    pad + inner,
-    notesY + 105,
-    mapW - inner * 2,
-    38,
-    3,
+    notesText,
+    pad + innerPad,
+    statsY + 210,
+    mapW - innerPad * 2,
+    34,
+    2,
   );
 
-  // ===== Photos (3x2 grid) =====
-  const photosY = notesY + notesH + 22;
-  const photosH = H - photosY - 56;
+  // ---------- Collage Card ----------
+  const collageY = statsY + statsH + cardGap;
+  const collageH = H - collageY - pad;
 
   ctx.fillStyle = "rgba(255,255,255,0.06)";
-  roundRect(ctx, pad, photosY, mapW, photosH, radius);
+  roundRect(ctx, pad, collageY, W - pad * 2, collageH, 28);
   ctx.fill();
 
   ctx.fillStyle = "rgba(255,255,255,0.7)";
   ctx.font = "800 26px Arial";
-  safeText(ctx, "Photos", pad + inner, photosY + 56);
+  safeText(ctx, "Photos", pad + 28, collageY + 54);
 
-  const gridPad = 24;
+  const gridPad = 22;
   const gridX = pad + gridPad;
-  const gridY = photosY + 86;
-  const gridW = mapW - gridPad * 2;
-  const gridH = photosH - 110;
+  const gridY = collageY + 84;
+  const gridW = W - pad * 2 - gridPad * 2;
+  const gridH = collageH - 110;
 
-  const photoCols = 3;
-  const photoRows = 2;
-  const gap = 16;
+  const urls = (params.photoUrls || []).slice(0, 8);
 
-  const cellW = Math.floor((gridW - gap * (photoCols - 1)) / photoCols);
-  const cellH = Math.floor((gridH - gap * (photoRows - 1)) / photoRows);
+  if (urls.length === 0) {
+    ctx.fillStyle = "rgba(255,255,255,0.75)";
+    ctx.font = "800 32px Arial";
+    safeText(ctx, "No photos uploaded", gridX, gridY + 80);
+  } else {
+    // 8 max: use 2 rows x 4 cols for 5–8, or 2x3 for 6, or 2x2 for <=4
+    let cols = 2;
+    let rows = 2;
 
-  const urls = params.photoUrls.slice(0, 6).map(maybeProxyUrl);
+    if (urls.length <= 4) {
+      cols = 2;
+      rows = 2;
+    } else if (urls.length <= 6) {
+      cols = 3;
+      rows = 2;
+    } else {
+      cols = 4;
+      rows = 2;
+    }
 
-  for (let i = 0; i < 6; i++) {
-    const r = Math.floor(i / photoCols);
-    const c = i % photoCols;
-    const x = gridX + c * (cellW + gap);
-    const y = gridY + r * (cellH + gap);
+    const gap = 16;
+    const cellW = Math.floor((gridW - gap * (cols - 1)) / cols);
+    const cellH = Math.floor((gridH - gap * (rows - 1)) / rows);
 
-    if (urls[i]) {
+    for (let i = 0; i < urls.length; i++) {
+      const r = Math.floor(i / cols);
+      const c = i % cols;
+      if (r >= rows) break;
+
+      const x = gridX + c * (cellW + gap);
+      const y = gridY + r * (cellH + gap);
+
       try {
         const img = await fetchImageBitmap(urls[i]);
-        drawRoundedImage(ctx, img, x, y, cellW, cellH, 22);
+        drawRoundedImage(ctx, img, x, y, cellW, cellH, 20);
       } catch {
-        drawPlaceholder(ctx, x, y, cellW, cellH);
+        // fallback box
+        ctx.fillStyle = "rgba(0,0,0,0.25)";
+        roundRect(ctx, x, y, cellW, cellH, 20);
+        ctx.fill();
       }
-    } else {
-      drawPlaceholder(ctx, x, y, cellW, cellH);
     }
   }
 
-  // ===== Footer ID (optional, subtle) =====
-  if (params.walkId) {
-    ctx.fillStyle = "rgba(255,255,255,0.35)";
-    ctx.font = "600 20px Arial";
-    const txt = `ID: ${params.walkId}`;
-    const tw = ctx.measureText(txt).width;
-    safeText(ctx, txt, W - pad - tw, H - 26);
-  }
-
-  return new Promise<Blob>((resolve, reject) => {
+  // Export
+  return await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
       (b) => (b ? resolve(b) : reject(new Error("PNG export failed"))),
       "image/png",
@@ -283,36 +291,27 @@ function drawRoundedImage(
   roundRect(ctx, x, y, w, h, r);
   ctx.clip();
 
-  const ir = img.width / img.height;
-  const br = w / h;
-  let dw = w;
-  let dh = h;
+  // cover fit
+  const imgRatio = img.width / img.height;
+  const boxRatio = w / h;
+
+  let drawW = w;
+  let drawH = h;
   let dx = x;
   let dy = y;
 
-  if (ir > br) {
-    dh = h;
-    dw = h * ir;
-    dx -= (dw - w) / 2;
+  if (imgRatio > boxRatio) {
+    drawH = h;
+    drawW = h * imgRatio;
+    dx = x - (drawW - w) / 2;
   } else {
-    dw = w;
-    dh = w / ir;
-    dy -= (dh - h) / 2;
+    drawW = w;
+    drawH = w / imgRatio;
+    dy = y - (drawH - h) / 2;
   }
 
-  ctx.drawImage(img, dx, dy, dw, dh);
+  ctx.drawImage(img, dx, dy, drawW, drawH);
   ctx.restore();
-}
-
-function drawPlaceholder(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-) {
-  ctx.fillStyle = "rgba(255,255,255,0.05)";
-  ctx.fillRect(x, y, w, h);
 }
 
 function wrapText(
@@ -328,12 +327,15 @@ function wrapText(
   let line = "";
   let lines = 0;
 
-  for (const word of words) {
-    const test = line ? `${line} ${word}` : word;
-    if (ctx.measureText(test).width > maxWidth && line) {
+  for (let i = 0; i < words.length; i++) {
+    const test = line ? `${line} ${words[i]}` : words[i];
+    const w = ctx.measureText(test).width;
+
+    if (w > maxWidth && line) {
       ctx.fillText(line, x, y + lines * lineHeight);
-      line = word;
       lines++;
+      line = words[i];
+
       if (lines >= maxLines) {
         ctx.fillText(line + "…", x, y + lines * lineHeight);
         return;
