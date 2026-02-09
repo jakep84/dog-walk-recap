@@ -253,9 +253,7 @@ export default function DashboardPage() {
                       <div>
                         <b>{agg.count}</b> walk{agg.count === 1 ? "" : "s"}
                       </div>
-                      <div className={styles.pillMoney}>
-                        {fmtMoney(agg.total)}
-                      </div>
+                      <div className={styles.pillMoney}>{fmtMoney(agg.total)}</div>
                     </div>
                   ) : (
                     <div style={{ height: 28 }} />
