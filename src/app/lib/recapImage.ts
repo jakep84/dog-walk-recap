@@ -13,8 +13,8 @@ function safeText(
 }
 
 /**
- * Create a Mapbox Static image URL with a GeoJSON line overlay and auto-fit.
- * NOTE: Mapbox expects [lng,lat]
+ * Mapbox Static image URL with GeoJSON line overlay and auto-fit.
+ * Mapbox expects [lng,lat].
  */
 export function buildStaticMapUrl(params: {
   points: LatLng[];
@@ -32,16 +32,15 @@ export function buildStaticMapUrl(params: {
   const feature = {
     type: "Feature",
     properties: {
-      stroke: "#2b6fff",
+      stroke: "#111111",
       "stroke-width": 6,
-      "stroke-opacity": 0.95,
+      "stroke-opacity": 0.9,
     },
     geometry: { type: "LineString", coordinates: coords },
   };
 
   const overlay = `geojson(${encodeURIComponent(JSON.stringify(feature))})`;
 
-  // "auto" fits overlay automatically
   return (
     `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/` +
     `${overlay}/auto/${width}x${height}` +
@@ -65,8 +64,8 @@ export async function generateWalkRecapPng(params: {
   createdAtLabel?: string;
   routePoints: LatLng[];
   photoUrls: string[]; // images only
-  walkId?: string;
 }): Promise<Blob> {
+  // Portrait recap
   const W = 1080;
   const H = 1920;
 
@@ -77,131 +76,135 @@ export async function generateWalkRecapPng(params: {
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas not supported");
 
-  // Background
+  // ---------- Background ----------
   ctx.fillStyle = "#0b0b0c";
   ctx.fillRect(0, 0, W, H);
 
-  // Layout
   const pad = 48;
+  const gap = 24;
 
-  const headerH = 220;
-  const mapH = 520;
-  const statsH = 240;
+  // Card radii
+  const cardR = 28;
 
-  const cardGap = 24;
+  // Layout sizes (matches old card proportions)
+  const headerH = 170;
+  const mapH = 560;
+  const statsH = 280;
+
+  const mapY = headerH + 10;
+  const statsY = mapY + mapH + gap;
+  const collageY = statsY + statsH + gap;
+  const collageH = H - collageY - pad;
 
   // ---------- Header ----------
   ctx.fillStyle = "#ffffff";
-  ctx.font = "900 74px Arial";
-  safeText(ctx, "Walk Recap", pad, 95);
+  ctx.font = "900 76px Arial";
+  safeText(ctx, "Walk Recap", pad, 92);
 
   ctx.font = "800 44px Arial";
-  safeText(ctx, params.dogs || "Dogs", pad, 150);
+  safeText(ctx, params.dogs || "Dogs", pad, 145);
 
-  ctx.fillStyle = "rgba(255,255,255,0.72)";
+  ctx.fillStyle = "rgba(255,255,255,0.70)";
   ctx.font = "600 28px Arial";
-  safeText(ctx, params.createdAtLabel || new Date().toLocaleString(), pad, 198);
+  safeText(ctx, params.createdAtLabel || new Date().toLocaleString(), pad, 190);
 
   // ---------- Map Card ----------
-  const mapY = headerH;
-  const mapX = pad;
-  const mapW = W - pad * 2;
+  const cardX = pad;
+  const cardW = W - pad * 2;
 
-  // Card background
+  // Card bg
   ctx.fillStyle = "rgba(255,255,255,0.06)";
-  roundRect(ctx, mapX, mapY, mapW, mapH, 28);
+  roundRect(ctx, cardX, mapY, cardW, mapH, cardR);
   ctx.fill();
 
-  // Map image inside card
   const mapUrl = buildStaticMapUrl({
     points: params.routePoints,
-    width: 900,
-    height: 520,
+    width: 1000,
+    height: 560,
   });
 
   if (mapUrl) {
     try {
       const mapImg = await fetchImageBitmap(mapUrl);
-      drawRoundedImage(ctx, mapImg, mapX, mapY, mapW, mapH, 28);
+      drawRoundedImage(ctx, mapImg, cardX, mapY, cardW, mapH, cardR);
     } catch {
-      ctx.fillStyle = "rgba(255,255,255,0.7)";
-      ctx.font = "800 30px Arial";
-      safeText(ctx, "Map failed to load", mapX + 24, mapY + 70);
+      ctx.fillStyle = "rgba(255,255,255,0.8)";
+      ctx.font = "800 32px Arial";
+      safeText(ctx, "Map failed to load", cardX + 24, mapY + 80);
     }
   } else {
-    ctx.fillStyle = "rgba(255,255,255,0.7)";
-    ctx.font = "800 30px Arial";
-    safeText(ctx, "Map unavailable", mapX + 24, mapY + 70);
+    ctx.fillStyle = "rgba(255,255,255,0.8)";
+    ctx.font = "800 32px Arial";
+    safeText(ctx, "Map unavailable", cardX + 24, mapY + 80);
   }
 
   // ---------- Stats Card ----------
-  const statsY = mapY + mapH + cardGap;
   ctx.fillStyle = "rgba(255,255,255,0.06)";
-  roundRect(ctx, pad, statsY, W - pad * 2, statsH, 28);
+  roundRect(ctx, cardX, statsY, cardW, statsH, cardR);
   ctx.fill();
 
-  // 3 columns
-  const innerPad = 28;
-  const colW = (W - pad * 2 - innerPad * 2) / 3;
+  // 3 columns like old card
+  const inner = 28;
+  const colW = (cardW - inner * 2) / 3;
 
-  const statLabelY = statsY + 62;
-  const statValueY = statsY + 118;
+  const labelY = statsY + 72;
+  const valueY = statsY + 128;
+
+  const temp = params.weather?.temperatureF;
+  const summary = params.weather?.summary || "";
 
   const labels = ["Duration", "Distance", "Weather"];
   const values = [
     `${params.durationMinutes} min`,
     `${params.distanceMiles.toFixed(2)} mi`,
-    `${params.weather?.temperatureF != null ? `${params.weather.temperatureF}°F` : "—"} ${
-      params.weather?.summary || ""
-    }`.trim(),
+    `${temp != null ? `${temp}°F` : "—"}  ${summary}`.trim(),
   ];
 
   for (let i = 0; i < 3; i++) {
-    const x = pad + innerPad + i * colW;
+    const x = cardX + inner + i * colW;
 
-    ctx.fillStyle = "rgba(255,255,255,0.7)";
-    ctx.font = "800 24px Arial";
-    safeText(ctx, labels[i], x, statLabelY);
+    ctx.fillStyle = "rgba(255,255,255,0.65)";
+    ctx.font = "800 26px Arial";
+    safeText(ctx, labels[i], x, labelY);
 
     ctx.fillStyle = "#ffffff";
-    ctx.font = "900 44px Arial";
-    safeText(ctx, values[i], x, statValueY);
+    ctx.font = "900 52px Arial";
+    safeText(ctx, values[i], x, valueY);
   }
 
-  // Notes section (small)
-  ctx.fillStyle = "rgba(255,255,255,0.7)";
-  ctx.font = "800 24px Arial";
-  safeText(ctx, "Notes", pad + innerPad, statsY + 168);
+  // Notes (left aligned under columns)
+  const notesLabelY = statsY + 185;
+  const notesTextY = statsY + 235;
+
+  ctx.fillStyle = "rgba(255,255,255,0.65)";
+  ctx.font = "800 26px Arial";
+  safeText(ctx, "Notes", cardX + inner, notesLabelY);
 
   ctx.fillStyle = "#ffffff";
-  ctx.font = "500 28px Arial";
-  const notesText = (params.notes || "").trim() || "—";
+  ctx.font = "500 30px Arial";
   wrapText(
     ctx,
-    notesText,
-    pad + innerPad,
-    statsY + 210,
-    mapW - innerPad * 2,
-    34,
+    (params.notes || "").trim() || "—",
+    cardX + inner,
+    notesTextY,
+    cardW - inner * 2,
+    38,
     2,
   );
 
-  // ---------- Collage Card ----------
-  const collageY = statsY + statsH + cardGap;
-  const collageH = H - collageY - pad;
-
+  // ---------- Photos / Collage Card ----------
   ctx.fillStyle = "rgba(255,255,255,0.06)";
-  roundRect(ctx, pad, collageY, W - pad * 2, collageH, 28);
+  roundRect(ctx, cardX, collageY, cardW, collageH, cardR);
   ctx.fill();
 
-  ctx.fillStyle = "rgba(255,255,255,0.7)";
-  ctx.font = "800 26px Arial";
-  safeText(ctx, "Photos", pad + 28, collageY + 54);
+  ctx.fillStyle = "rgba(255,255,255,0.70)";
+  ctx.font = "800 28px Arial";
+  safeText(ctx, "Photos", cardX + 28, collageY + 58);
 
   const gridPad = 22;
-  const gridX = pad + gridPad;
-  const gridY = collageY + 84;
-  const gridW = W - pad * 2 - gridPad * 2;
+  const gridX = cardX + gridPad;
+  const gridY = collageY + 88;
+  const gridW = cardW - gridPad * 2;
   const gridH = collageH - 110;
 
   const urls = (params.photoUrls || []).slice(0, 8);
@@ -211,38 +214,27 @@ export async function generateWalkRecapPng(params: {
     ctx.font = "800 32px Arial";
     safeText(ctx, "No photos uploaded", gridX, gridY + 80);
   } else {
-    // 8 max: use 2 rows x 4 cols for 5–8, or 2x3 for 6, or 2x2 for <=4
-    let cols = 2;
-    let rows = 2;
+    // 7–8 images = 4 columns x 2 rows
+    const cols = urls.length <= 6 ? 3 : 4;
+    const rows = 2;
 
-    if (urls.length <= 4) {
-      cols = 2;
-      rows = 2;
-    } else if (urls.length <= 6) {
-      cols = 3;
-      rows = 2;
-    } else {
-      cols = 4;
-      rows = 2;
-    }
-
-    const gap = 16;
-    const cellW = Math.floor((gridW - gap * (cols - 1)) / cols);
-    const cellH = Math.floor((gridH - gap * (rows - 1)) / rows);
+    const cellGap = 16;
+    const cellW = Math.floor((gridW - cellGap * (cols - 1)) / cols);
+    const cellH = Math.floor((gridH - cellGap * (rows - 1)) / rows);
 
     for (let i = 0; i < urls.length; i++) {
       const r = Math.floor(i / cols);
       const c = i % cols;
       if (r >= rows) break;
 
-      const x = gridX + c * (cellW + gap);
-      const y = gridY + r * (cellH + gap);
+      const x = gridX + c * (cellW + cellGap);
+      const y = gridY + r * (cellH + cellGap);
 
       try {
         const img = await fetchImageBitmap(urls[i]);
         drawRoundedImage(ctx, img, x, y, cellW, cellH, 20);
       } catch {
-        // fallback box
+        // fallback block
         ctx.fillStyle = "rgba(0,0,0,0.25)";
         roundRect(ctx, x, y, cellW, cellH, 20);
         ctx.fill();
@@ -250,7 +242,7 @@ export async function generateWalkRecapPng(params: {
     }
   }
 
-  // Export
+  // ---------- Export ----------
   return await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
       (b) => (b ? resolve(b) : reject(new Error("PNG export failed"))),
